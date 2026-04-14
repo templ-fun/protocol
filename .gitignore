@@ -1,0 +1,21 @@
+# Build
+out/
+cache/
+
+# Dependencies (installed via forge soldeer install)
+dependencies/
+
+# Deployment sensitive data (private keys, etc.)
+# broadcast/ is committed intentionally -- it's the deployment history
+cache/Deploy.s.sol/
+
+# Coverage
+lcov.info
+coverage/*
+!coverage/coverage.css
+
+# Gas snapshot
+.gas-snapshot
+
+# Environment
+.env
