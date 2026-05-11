@@ -6,6 +6,7 @@ import { DemocracyDeployer } from "../src/DemocracyDeployer.sol";
 import { Factory } from "../src/Factory.sol";
 import { GovernanceDeployer } from "../src/GovernanceDeployer.sol";
 import { Templ } from "../src/Templ.sol";
+import { IExecutable } from "../src/interfaces/IExecutable.sol";
 import {
   CreateConfig,
   GovMode,
@@ -66,10 +67,11 @@ contract SlugAndMetadataTest is Test {
   }
 
   function setUp() public {
-    DemocracyDeployer demDeployer = new DemocracyDeployer();
-    CouncilDeployer councilDeployer = new CouncilDeployer();
-    GovernanceDeployer govDeployer =
-      new GovernanceDeployer(address(demDeployer), address(councilDeployer));
+    DemocracyDeployer demDeployer = new DemocracyDeployer(address(this));
+    CouncilDeployer councilDeployer = new CouncilDeployer(address(this));
+    GovernanceDeployer govDeployer = new GovernanceDeployer(
+      address(demDeployer), address(councilDeployer), address(this)
+    );
     factory = new Factory(address(this), address(govDeployer), true);
 
     councilDeployer.setGovernanceDeployer(address(govDeployer));
@@ -151,7 +153,7 @@ contract SlugAndMetadataTest is Test {
   function test_updateSlug_success() public {
     vm.prank(creator);
     address templ = factory.createTempl(_createConfig("old-slug"));
-    address governance = Templ(templ).governance();
+    address governance = Templ(payable(templ)).governance();
 
     vm.expectEmit(true, false, false, true);
     emit IFactory.SlugUpdated(templ, "old-slug", "new-slug");
@@ -185,7 +187,7 @@ contract SlugAndMetadataTest is Test {
     factory.createTempl(_createConfig("slug-two"));
     vm.stopPrank();
 
-    address governance = Templ(templ1).governance();
+    address governance = Templ(payable(templ1)).governance();
 
     // Invalid format
     vm.prank(governance);
@@ -203,13 +205,14 @@ contract SlugAndMetadataTest is Test {
   function test_updateMetadata_emitsEvent() public {
     vm.prank(creator);
     address templ = factory.createTempl(_createConfig("meta-test"));
-    address governance = Templ(templ).governance();
+    address governance = Templ(payable(templ)).governance();
 
     vm.expectEmit(false, false, false, true);
     emit ITempl.MetadataUpdated("New Name", "New desc", "https://new.logo");
 
     vm.prank(governance);
-    Templ(templ).updateMetadata("New Name", "New desc", "https://new.logo");
+    Templ(payable(templ))
+      .updateMetadata("New Name", "New desc", "https://new.logo");
   }
 
   function test_updateMetadata_onlyGovernance() public {
@@ -217,7 +220,7 @@ contract SlugAndMetadataTest is Test {
     address templ = factory.createTempl(_createConfig("meta-test-2"));
 
     vm.prank(makeAddr("random"));
-    vm.expectRevert(ITempl.NotGovernance.selector);
-    Templ(templ).updateMetadata("Hacked", "Hacked", "Hacked");
+    vm.expectRevert(IExecutable.NotGovernance.selector);
+    Templ(payable(templ)).updateMetadata("Hacked", "Hacked", "Hacked");
   }
 }

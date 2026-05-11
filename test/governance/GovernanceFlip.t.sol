@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import { CouncilDeployer } from "../../src/CouncilDeployer.sol";
 import { DemocracyDeployer } from "../../src/DemocracyDeployer.sol";
 import { GovernanceDeployer } from "../../src/GovernanceDeployer.sol";
+import { MemberPool } from "../../src/MemberPool.sol";
 import { Templ } from "../../src/Templ.sol";
 import { Treasury } from "../../src/Treasury.sol";
 import { Council } from "../../src/governance/Council.sol";
@@ -44,27 +45,40 @@ contract GovernanceFlipTest is Test {
     token = new MockERC20();
     mf = new MockFactory(protocolRecipient);
 
-    DemocracyDeployer dd = new DemocracyDeployer();
-    CouncilDeployer cd = new CouncilDeployer();
-    govDeployer = new GovernanceDeployer(address(dd), address(cd));
+    DemocracyDeployer dd = new DemocracyDeployer(address(this));
+    CouncilDeployer cd = new CouncilDeployer(address(this));
+    govDeployer =
+      new GovernanceDeployer(address(dd), address(cd), address(this));
     cd.setGovernanceDeployer(address(govDeployer));
     dd.setGovernanceDeployer(address(govDeployer));
     // Lock factory to this test contract so deploy() calls succeed
     govDeployer.setFactory(address(this));
 
-    treasury = mf.deployTreasury(address(token), 1000, address(0), 2500);
+    MemberPool pool;
+    (treasury, pool) = mf.deployTreasuryAndPool(address(token));
     templ = new Templ(
       priest,
       address(token),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(treasury),
-      address(this) // test contract acts as initial governance
+      address(pool),
+      address(this), // test contract acts as initial governance
+      1000,
+      address(0)
     );
     vm.prank(address(mf));
     treasury.setTempl(address(templ));
     vm.prank(address(mf));
-    treasury.setFeeSplit(3000, 3000, 3000);
+    treasury.setMemberPool(address(pool));
+    vm.prank(address(mf));
+    pool.setTempl(address(templ));
+    vm.prank(address(mf));
+    pool.setTreasury(address(treasury));
+    // Split config lives on Templ; address(this) is the temp governance
+    // until democracyGov is wired below.
+    templ.setFeeSplit(3000, 3000, 3000);
+    templ.setReferralShareBps(2500);
 
     democracyGov = new Democracy(
       address(templ),
@@ -198,15 +212,16 @@ contract GovernanceFlipTest is Test {
     // 1. GovernanceUpdated from Templ (registers the contract in indexer)
     // 2. GovernanceInitialized (sets governanceType)
     // 3. Config parameter events (populate Templ entity fields)
-    // 4. CouncilInitialized (Council-specific, sets councilSize)
-    vm.expectEmit(true, false, false, true, address(templ));
-    emit ITempl.GovernanceUpdated(newGovAddr);
+    //
+    // CouncilInitialized fires at Council construction (already in `newGovAddr`'s
+    // constructor before this point) and Envio backfills same-block events on
+    // contracts dynamically registered by GovernanceUpdated, so it is not part
+    // of the execute-call event sequence.
+    vm.expectEmit(true, true, false, true, address(templ));
+    emit ITempl.GovernanceUpdated(address(democracyGov), newGovAddr);
 
     vm.expectEmit(true, false, false, true, newGovAddr);
     emit IGovernance.GovernanceInitialized(address(templ), "council");
-
-    vm.expectEmit(true, false, false, true, newGovAddr);
-    emit Council.CouncilInitialized(address(templ), 2);
 
     democracyGov.execute(proposalId);
 
@@ -267,8 +282,8 @@ contract GovernanceFlipTest is Test {
     vm.prank(bob);
     councilGov.vote(pid, 1);
 
-    vm.expectEmit(true, false, false, true, address(templ));
-    emit ITempl.GovernanceUpdated(newDemocracyAddr);
+    vm.expectEmit(true, true, false, true, address(templ));
+    emit ITempl.GovernanceUpdated(councilAddr, newDemocracyAddr);
 
     vm.expectEmit(true, false, false, true, newDemocracyAddr);
     emit IGovernance.GovernanceInitialized(address(templ), "democracy");

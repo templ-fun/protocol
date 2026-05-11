@@ -18,10 +18,13 @@ contract Deploy is Script {
   address constant DETERMINISTIC_DEPLOYER =
     0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-  /// @dev Bump this when redeploying (e.g. after a bug fix).
-  ///      Salt 25 is the current staging Factory (Base + Arbitrum).
-  ///      Salt 26 is the current production Factory (Base only).
-  bytes32 constant DEPLOY_SALT = bytes32(uint256(26));
+  /// @dev CREATE2 salt that determines deterministic Factory addresses.
+  ///      Salt 34 was the prior production deploy. PR #359 (switch-governance
+  ///      preset) changes deployer + Council + Templ + Governance bytecode, so
+  ///      a full redeploy is needed for both tiers.
+  ///        - 35: staging redeploy
+  ///        - 36: production redeploy
+  bytes32 constant DEPLOY_SALT = bytes32(uint256(36));
 
   function run() external {
     // Resolve the deployer EOA up front so it can be baked into the Factory
@@ -32,21 +35,23 @@ contract Deploy is Script {
     address deployerAddress = vm.addr(deployerKey);
 
     // 1. Compute DemocracyDeployer address
-    bytes memory demInitCode =
-      abi.encodePacked(type(DemocracyDeployer).creationCode);
+    bytes memory demInitCode = abi.encodePacked(
+      type(DemocracyDeployer).creationCode, abi.encode(deployerAddress)
+    );
     address expectedDem =
       _computeCreate2Address(DEPLOY_SALT, keccak256(demInitCode));
 
     // 2. Compute CouncilDeployer address
-    bytes memory councilInitCode =
-      abi.encodePacked(type(CouncilDeployer).creationCode);
+    bytes memory councilInitCode = abi.encodePacked(
+      type(CouncilDeployer).creationCode, abi.encode(deployerAddress)
+    );
     address expectedCouncil =
       _computeCreate2Address(DEPLOY_SALT, keccak256(councilInitCode));
 
     // 3. Compute GovernanceDeployer address (needs both sub-deployer addresses)
     bytes memory govInitCode = abi.encodePacked(
       type(GovernanceDeployer).creationCode,
-      abi.encode(expectedDem, expectedCouncil)
+      abi.encode(expectedDem, expectedCouncil, deployerAddress)
     );
     address expectedGov =
       _computeCreate2Address(DEPLOY_SALT, keccak256(govInitCode));

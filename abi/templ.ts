@@ -1,6 +1,9 @@
 /**
  * TEMPL ABI - minimal subset used by the web app
  * Full ABI: abi/Templ.json
+ *
+ * Templ owns the fee-split knobs, the burn destination, the referral share,
+ * the immutable PROTOCOL_BPS, and the cumulative totalBurned counter.
  */
 export const TEMPL_ABI = [
   {
@@ -43,6 +46,52 @@ export const TEMPL_ABI = [
   },
   {
     type: "function",
+    name: "baseEntryFee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "paidJoins",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "setBaseEntryFee",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_baseEntryFee", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setJoinPaused",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_paused", type: "bool" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setGovernance",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "_governance", type: "address" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "updateMetadata",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "description", type: "string" },
+      { name: "logoLink", type: "string" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "governance",
     stateMutability: "view",
     inputs: [],
@@ -61,6 +110,87 @@ export const TEMPL_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "MEMBER_POOL",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "burnBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "treasuryBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "memberPoolBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "PROTOCOL_BPS",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "referralShareBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "burnAddress",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    type: "function",
+    name: "totalBurned",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "setFeeSplit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "burnBpsValue", type: "uint256" },
+      { name: "treasuryBpsValue", type: "uint256" },
+      { name: "memberPoolBpsValue", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setReferralShareBps",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "bps", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setBurnAddress",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "burnAddressValue", type: "address" }],
+    outputs: [],
   },
   {
     type: "function",
@@ -154,5 +284,81 @@ export const TEMPL_ABI = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ type: "address" }],
+  },
+  {
+    type: "event",
+    name: "EntryFeeUpdated",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "newEntryFee", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "BaseEntryFeeUpdated",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "baseEntryFee", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MemberJoined",
+    inputs: [
+      { name: "member", type: "address", indexed: true },
+      { name: "payer", type: "address", indexed: true },
+      { name: "entryFee", type: "uint256", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "FeeSplitUpdated",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "burnBps", type: "uint256", indexed: false },
+      { name: "treasuryBps", type: "uint256", indexed: false },
+      { name: "memberPoolBps", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ReferralShareBpsUpdated",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "bps", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "BurnAddressUpdated",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "burnAddress", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "FeesDistributed",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "totalFee", type: "uint256", indexed: false },
+      { name: "burnAmount", type: "uint256", indexed: false },
+      { name: "treasuryAmount", type: "uint256", indexed: false },
+      { name: "memberPoolAmount", type: "uint256", indexed: false },
+      { name: "protocolAmount", type: "uint256", indexed: false },
+      { name: "referral", type: "address", indexed: false },
+      { name: "referralAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ReferralRewardPaid",
+    inputs: [
+      { name: "templ", type: "address", indexed: true },
+      { name: "referral", type: "address", indexed: true },
+      { name: "member", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
   },
 ] as const;

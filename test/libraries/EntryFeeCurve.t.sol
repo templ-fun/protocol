@@ -43,7 +43,7 @@ contract EntryFeeCurveTest is Test {
 
   // ============ Helpers ============
 
-  /// @dev Mirrors v1 factory defaults: exponential 0.94%/join for 248 joins, then static tail
+  /// @dev Default curve: exponential 0.94%/join for 248 joins, then static tail
   uint32 constant V1_RATE_BPS = 10_094;
   uint32 constant V1_GROWTH_LENGTH = 248;
 

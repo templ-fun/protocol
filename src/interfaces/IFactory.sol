@@ -72,12 +72,15 @@ struct CreateConfig {
 interface IFactory {
   // ============ Events ============
 
-  /// @notice Emitted when a new templ is created
+  /// @notice Emitted when a new templ is created. `memberPool` is the
+  ///         deterministically-deployed MemberPool that holds member rewards;
+  ///         indexers should subscribe to its events from this address.
   event TemplCreated(
     address indexed templ,
     address indexed priest,
     address indexed token,
     address treasury,
+    address memberPool,
     address creator,
     uint256 baseEntryFee,
     string slug,

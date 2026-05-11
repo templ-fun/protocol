@@ -76,10 +76,14 @@ abi-export: build
 	@jq '.abi' out/Templ.sol/Templ.json > abi/Templ.json
 	@jq '.abi' out/Factory.sol/Factory.json > abi/Factory.json
 	@jq '.abi' out/Treasury.sol/Treasury.json > abi/Treasury.json
+	@jq '.abi' out/MemberPool.sol/MemberPool.json > abi/MemberPool.json
 	@jq '.abi' out/JoinWithNative.sol/JoinWithNative.json > abi/JoinWithNative.json
 	@jq '.abi' out/Governance.sol/Governance.json > abi/Governance.json
 	@jq '.abi' out/Democracy.sol/Democracy.json > abi/Democracy.json
 	@jq '.abi' out/Council.sol/Council.json > abi/Council.json
+	@jq '.abi' out/GovernanceDeployer.sol/GovernanceDeployer.json > abi/GovernanceDeployer.json
+	@jq '.abi' out/DemocracyDeployer.sol/DemocracyDeployer.json > abi/DemocracyDeployer.json
+	@jq '.abi' out/CouncilDeployer.sol/CouncilDeployer.json > abi/CouncilDeployer.json
 	@echo "ABIs exported to abi/"
 
 clean:

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { MemberPool } from "../../src/MemberPool.sol";
 import { Templ } from "../../src/Templ.sol";
 import { Treasury } from "../../src/Treasury.sol";
 import { Democracy } from "../../src/governance/Democracy.sol";
@@ -46,20 +47,31 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     token = new MockERC20();
 
     mockFactory = new MockFactory(protocolRecipient);
-    treasury =
-      mockFactory.deployTreasury(address(token), 1000, address(0), 2500);
+    MemberPool pool;
+    (treasury, pool) = mockFactory.deployTreasuryAndPool(address(token));
     templ = new Templ(
       priest,
       address(token),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(treasury),
-      address(this) // test contract is initial governance
+      address(pool),
+      address(this), // test contract is initial governance
+      1000,
+      address(0)
     );
     vm.prank(address(mockFactory));
     treasury.setTempl(address(templ));
     vm.prank(address(mockFactory));
-    treasury.setFeeSplit(3000, 3000, 3000);
+    treasury.setMemberPool(address(pool));
+    vm.prank(address(mockFactory));
+    pool.setTempl(address(templ));
+    vm.prank(address(mockFactory));
+    pool.setTreasury(address(treasury));
+    // Split config lives on Templ; address(this) is the temp governance
+    // until the Democracy gov is wired below.
+    templ.setFeeSplit(3000, 3000, 3000);
+    templ.setReferralShareBps(2500);
 
     gov = new Democracy(
       address(templ),
@@ -635,7 +647,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     uint256 expectedFee = (templ.entryFee() * feeBps) / 10_000;
     assertGt(expectedFee, 0);
 
-    uint256 treasuryBefore = treasury.treasuryBalance();
+    uint256 treasuryBefore = token.balanceOf(address(treasury));
 
     token.mint(alice, expectedFee);
     vm.startPrank(alice);
@@ -649,7 +661,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     feeGov.propose(targets, vals, cds, "lower fee");
     vm.stopPrank();
 
-    assertEq(treasury.treasuryBalance() - treasuryBefore, expectedFee);
+    assertEq(token.balanceOf(address(treasury)) - treasuryBefore, expectedFee);
   }
 
   // ============ Base Entry Fee Change Mid-Life ============
@@ -706,20 +718,30 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
   function test_propose_resistsReentrancy() public {
     ReentrantToken evil = new ReentrantToken();
     MockFactory evilMockFactory = new MockFactory(protocolRecipient);
-    Treasury evilTreasury =
-      evilMockFactory.deployTreasury(address(evil), 1000, address(0), 2500);
+    (Treasury evilTreasury, MemberPool evilPool) =
+      evilMockFactory.deployTreasuryAndPool(address(evil));
     Templ evilTempl = new Templ(
       priest,
       address(evil),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(evilTreasury),
-      address(this)
+      address(evilPool),
+      address(this),
+      1000,
+      address(0)
     );
     vm.prank(address(evilMockFactory));
     evilTreasury.setTempl(address(evilTempl));
     vm.prank(address(evilMockFactory));
-    evilTreasury.setFeeSplit(3000, 3000, 3000);
+    evilTreasury.setMemberPool(address(evilPool));
+    vm.prank(address(evilMockFactory));
+    evilPool.setTempl(address(evilTempl));
+    vm.prank(address(evilMockFactory));
+    evilPool.setTreasury(address(evilTreasury));
+    // Split config lives on Templ; address(this) is the temp gov.
+    evilTempl.setFeeSplit(3000, 3000, 3000);
+    evilTempl.setReferralShareBps(2500);
 
     evil.mint(alice, 100_000e18);
     vm.startPrank(alice);
@@ -837,7 +859,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     uint256 expectedFee = (templ.entryFee() * feeBps) / 10_000;
     assertGt(expectedFee, 0);
 
-    uint256 treasuryBefore = treasury.treasuryBalance();
+    uint256 treasuryBefore = token.balanceOf(address(treasury));
     token.mint(aliceSigner, expectedFee);
 
     vm.prank(aliceSigner);
@@ -872,7 +894,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     assertEq(
       uint8(feeGov.state(proposalId)), uint8(IGovernance.ProposalState.Active)
     );
-    assertEq(treasury.treasuryBalance() - treasuryBefore, expectedFee);
+    assertEq(token.balanceOf(address(treasury)) - treasuryBefore, expectedFee);
   }
 
   function test_proposeWithPermitWitness_noFeeRelayedTrustlessly() public {
@@ -1043,20 +1065,30 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     // Stand up a parallel Templ/Democracy with an ERC-2612 permit token
     // so the permit flow can be exercised end-to-end.
     MockERC20Permit permitToken = new MockERC20Permit();
-    Treasury permitTreasury =
-      mockFactory.deployTreasury(address(permitToken), 1000, address(0), 2500);
+    (Treasury permitTreasury, MemberPool permitPool) =
+      mockFactory.deployTreasuryAndPool(address(permitToken));
     Templ permitTempl = new Templ(
       priest,
       address(permitToken),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(permitTreasury),
-      address(this)
+      address(permitPool),
+      address(this),
+      1000,
+      address(0)
     );
     vm.prank(address(mockFactory));
     permitTreasury.setTempl(address(permitTempl));
     vm.prank(address(mockFactory));
-    permitTreasury.setFeeSplit(3000, 3000, 3000);
+    permitTreasury.setMemberPool(address(permitPool));
+    vm.prank(address(mockFactory));
+    permitPool.setTempl(address(permitTempl));
+    vm.prank(address(mockFactory));
+    permitPool.setTreasury(address(permitTreasury));
+    // Split config lives on Templ; address(this) is the temp gov.
+    permitTempl.setFeeSplit(3000, 3000, 3000);
+    permitTempl.setReferralShareBps(2500);
 
     uint256 feeBps = 500;
     Democracy feeGov = new Democracy(
@@ -1276,7 +1308,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
   // ============ Quorum-Exempt Dissolution ============
 
   function test_proposeDissolution_fullLifecycle() public {
-    uint256 treasuryBefore = treasury.treasuryBalance();
+    uint256 treasuryBefore = token.balanceOf(address(treasury));
     assertGt(treasuryBefore, 0);
 
     vm.prank(priest);
@@ -1290,7 +1322,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     // but still needs FOR > AGAINST, voting period ended, and execution delay.
     vm.warp(block.timestamp + VOTING_PERIOD);
     gov.execute(id);
-    assertEq(treasury.treasuryBalance(), 0);
+    assertEq(token.balanceOf(address(treasury)), 0);
   }
 
   function test_proposeDissolution_membersCanVoteNo() public {
@@ -1521,6 +1553,110 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     gov.execute(id);
   }
 
+  /// @dev Cross-field invariant: when immediateExecutionBps is zero, the
+  ///      execution delay must also be zero. Otherwise any single FOR vote
+  ///      already satisfies `forVotes * BPS / denominator >= 0`, firing the
+  ///      instant branch and skipping the delay anyway. The previous codebase
+  ///      enforced this only in the constructor; the DRY refactor in
+  ///      Governance._setExecutionDelay lifts the same rule into the setter so
+  ///      governance cannot deploy in a sane (both-zero) config and later
+  ///      bump executionDelay into the contradictory regime. This test pins
+  ///      that tightening — if a future refactor reverts to constructor-only
+  ///      enforcement, this test fails.
+  function test_setExecutionDelay_revertsWhenImmediateExecutionBpsIsZero()
+    public
+  {
+    // Spin up a second Templ + Democracy where both immediateExecutionBps
+    // and executionDelay start at zero. This is the only constructor-legal
+    // config that lets us later attempt `setExecutionDelay(nonZero)` while
+    // immediateExecutionBps is still zero. We deploy with quorum/approval
+    // also at zero so any single FOR vote suffices for execution (the only
+    // way to actually drive a proposal through with immediateExecutionBps=0
+    // and zero delay), keeping the test focused on the setter's invariant
+    // rather than on quorum mechanics.
+    MemberPool pool2;
+    Treasury treasury2;
+    (treasury2, pool2) = mockFactory.deployTreasuryAndPool(address(token));
+    Templ templ2 = new Templ(
+      priest,
+      address(token),
+      ENTRY_FEE,
+      EntryFeeCurve.exponentialWithTail(10_094, 248),
+      address(treasury2),
+      address(pool2),
+      address(this),
+      1000,
+      address(0)
+    );
+    vm.prank(address(mockFactory));
+    treasury2.setTempl(address(templ2));
+    vm.prank(address(mockFactory));
+    treasury2.setMemberPool(address(pool2));
+    vm.prank(address(mockFactory));
+    pool2.setTempl(address(templ2));
+    vm.prank(address(mockFactory));
+    pool2.setTreasury(address(treasury2));
+    templ2.setFeeSplit(3000, 3000, 3000);
+    templ2.setReferralShareBps(2500);
+
+    Democracy zeroGov = new Democracy(
+      address(templ2),
+      0, // approvalThresholdBps = 0
+      0, // quorumBps = 0
+      0, // executionDelay = 0  (constructor-legal alongside zero immediate)
+      VOTING_PERIOD,
+      0, // immediateExecutionBps = 0
+      0
+    );
+    templ2.setGovernance(address(zeroGov));
+
+    // Join one member so they can propose.
+    uint256 fee = templ2.entryFee();
+    token.mint(alice, fee);
+    vm.startPrank(alice);
+    token.approve(address(templ2), fee);
+    templ2.join(alice, address(0));
+    vm.stopPrank();
+
+    // Propose setExecutionDelay(2 days). The inner call must revert with
+    // InvalidQuorumConfig because immediateExecutionBps is still 0; the
+    // outer execute() surfaces that as ExecutionFailed.
+    address[] memory targets = new address[](1);
+    targets[0] = address(zeroGov);
+    uint256[] memory vals = new uint256[](1);
+    bytes[] memory cds = new bytes[](1);
+    cds[0] = abi.encodeCall(IGovernance.setExecutionDelay, (2 days));
+
+    vm.prank(alice);
+    uint256 id = zeroGov.propose(targets, vals, cds, "bump delay");
+
+    // Both forVotes (1, alice auto-vote) and denominator (1 member) yield
+    // forVotes * BPS / denominator = 10_000 >= 0 = immediateExecutionBps,
+    // so the instant branch fires and we can execute immediately.
+    vm.expectRevert(IGovernance.ExecutionFailed.selector);
+    zeroGov.execute(id);
+
+    // Sanity: state did not move.
+    assertEq(zeroGov.executionDelay(), 0);
+    assertEq(zeroGov.immediateExecutionBps(), 0);
+  }
+
+  /// @dev Companion positive case: when immediateExecutionBps > 0, the same
+  ///      setter accepts a non-zero executionDelay. The default test gov
+  ///      already has immediateExecutionBps = IMMEDIATE_EXECUTION_BPS; this
+  ///      asserts the success path is unchanged. (The original
+  ///      `test_setExecutionDelay_viaProposal` already covers this with a
+  ///      different value; this case pins the boundary "immediate > 0
+  ///      enables non-zero delay" symmetry test against the revert above.)
+  function test_setExecutionDelay_succeedsWhenImmediateExecutionBpsIsNonZero()
+    public
+  {
+    assertGt(gov.immediateExecutionBps(), 0);
+    assertEq(gov.executionDelay(), EXECUTION_DELAY);
+    _proposeGovChange(abi.encodeCall(IGovernance.setExecutionDelay, (5 days)));
+    assertEq(gov.executionDelay(), 5 days);
+  }
+
   function test_parameterSetters_revertIfCalledDirectly() public {
     vm.expectRevert(IGovernance.NotAuthorized.selector);
     gov.setApprovalThresholdBps(6000);
@@ -1717,22 +1853,24 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
     assertEq(address(gov).balance, 1 ether);
   }
 
-  function test_execute_treasuryWithdrawToExternalViaGovernance() public {
-    // Real-world scenario: withdraw from treasury to an external DeFi protocol
-    // Step 1: withdraw from treasury to governance
-    // Step 2: governance sends tokens externally
-    uint256 treasuryBal = treasury.treasuryBalance();
+  function test_execute_treasuryTransferToExternalViaGovernance() public {
+    // Real-world scenario: send treasury TOKEN to an external recipient via
+    // the new programmable-vault `execute` surface.
+    //   gov.execute -> treasury.execute(token, 0, transfer(defi, balance))
+    uint256 treasuryBal = token.balanceOf(address(treasury));
     assertGt(treasuryBal, 0);
 
     address defiProtocol = makeAddr("defiProtocol");
 
-    address[] memory targets = new address[](2);
+    bytes memory innerTransfer =
+      abi.encodeCall(MockERC20.transfer, (defiProtocol, treasuryBal));
+
+    address[] memory targets = new address[](1);
     targets[0] = address(treasury);
-    targets[1] = address(token);
-    uint256[] memory vals = new uint256[](2);
-    bytes[] memory cds = new bytes[](2);
-    cds[0] = abi.encodeCall(treasury.withdraw, (address(gov), treasuryBal));
-    cds[1] = abi.encodeCall(MockERC20.transfer, (defiProtocol, treasuryBal));
+    uint256[] memory vals = new uint256[](1);
+    bytes[] memory cds = new bytes[](1);
+    cds[0] =
+      abi.encodeCall(treasury.execute, (address(token), 0, innerTransfer));
 
     vm.prank(alice);
     uint256 id = gov.propose(targets, vals, cds, "invest in DeFi");
@@ -1746,7 +1884,7 @@ contract DemocracyTest is Test, Permit2Helper, ERC2612Helper {
 
     gov.execute(id);
 
-    assertEq(treasury.treasuryBalance(), 0);
+    assertEq(token.balanceOf(address(treasury)), 0);
     assertEq(token.balanceOf(defiProtocol), treasuryBal);
   }
 

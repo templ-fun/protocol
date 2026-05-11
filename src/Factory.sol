@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { GovernanceDeployer } from "./GovernanceDeployer.sol";
+import { MemberPool } from "./MemberPool.sol";
 import { Templ } from "./Templ.sol";
 import { Treasury } from "./Treasury.sol";
 import {
@@ -18,11 +19,16 @@ import { Ownable } from "solady/auth/Ownable.sol";
 
 /// @title Factory
 /// @notice Creates fully functional Templs in a single transaction.
-///         Deploys Templ + Treasury via embedded bytecodes, then delegates
-///         governance deployment to GovernanceDeployer (separate contract to
-///         stay under the 24KB contract size limit).
+///         Deploys Templ + Treasury + MemberPool via embedded bytecodes, then
+///         delegates governance deployment to GovernanceDeployer (separate
+///         contract to stay under the 24KB contract size limit).
 ///         The Factory acts as temporary governance during creation, then hands
 ///         off control to the deployed governance contract.
+///         User-claimable funds live in MemberPool; Treasury is a passive vault
+///         holding the treasury slice. The burn / treasury / member-pool /
+///         referral BPS knobs and the burn destination live on Templ; Factory
+///         passes PROTOCOL_FEE_BPS into the Templ constructor and bootstraps
+///         the mutable knobs against the Templ contract.
 contract Factory is IFactory, Ownable {
   // ============ Constants ============
 
@@ -73,6 +79,9 @@ contract Factory is IFactory, Ownable {
     protocolFeeRecipient = owner_;
     GOV_DEPLOYER = GovernanceDeployer(_govDeployer);
     isOpen = _isOpen;
+    // Emit the genesis state so consumers do not have to read it from RPC.
+    emit ProtocolFeeRecipientUpdated(owner_);
+    emit OpenUpdated(_isOpen);
   }
 
   // ============ Views ============
@@ -127,7 +136,9 @@ contract Factory is IFactory, Ownable {
     string calldata newSlug
   ) external override {
     if (!isTempl[templ]) revert NotRegisteredTempl();
-    if (msg.sender != Templ(templ).governance()) revert NotGovernance();
+    if (msg.sender != Templ(payable(templ)).governance()) {
+      revert NotGovernance();
+    }
 
     _validateSlug(newSlug);
 
@@ -243,16 +254,11 @@ contract Factory is IFactory, Ownable {
     bytes32 slugHash = keccak256(bytes(config.slug));
     if (_slugToTempl[slugHash] != address(0)) revert SlugTaken();
 
-    // 2. Deploy Treasury + Templ (Factory is temporary governance)
+    // 2. Deploy Treasury + MemberPool + Templ (Factory is temporary governance)
     address treasury;
-    (templ, treasury) = _deploy(
-      priest,
-      config.token,
-      config.baseEntryFee,
-      config.slug,
-      curve,
-      config.referralShareBps
-    );
+    address memberPool;
+    (templ, treasury, memberPool) =
+      _deploy(priest, config.token, config.baseEntryFee, config.slug, curve);
 
     // 3. Register slug (deploy succeeded, safe to commit)
     _slugToTempl[slugHash] = templ;
@@ -262,6 +268,7 @@ contract Factory is IFactory, Ownable {
     _emitTemplCreated(
       templ,
       treasury,
+      memberPool,
       config.baseEntryFee,
       config.slug,
       config.name,
@@ -270,26 +277,32 @@ contract Factory is IFactory, Ownable {
     );
 
     // 5. Emit priest's MemberJoined after TemplCreated (indexer ordering)
-    Templ(templ).emitPriestJoin();
+    Templ(payable(templ)).emitPriestJoin();
 
-    // 6. Set fee splits (indexer catches FeeSplitUpdated after TemplCreated)
-    Treasury(treasury)
+    // 6. Bootstrap mutable Templ config so the indexer captures the initial
+    //    values via events in the same tx as TemplCreated. Factory is
+    //    temporary governance, so onlyGovernance setters succeed.
+    Templ(payable(templ))
       .setFeeSplit(config.burnBps, config.treasuryBps, config.memberPoolBps);
+    Templ(payable(templ)).setReferralShareBps(config.referralShareBps);
+    // burnAddress() returns the resolved value (DEAD when caller passed zero,
+    // explicit override otherwise) so the emitted event carries the truth.
+    Templ(payable(templ)).setBurnAddress(Templ(payable(templ)).burnAddress());
 
     // 7. Deploy governance and hand off control
     _deployAndWireGovernance(templ, config.governance);
   }
 
-  /// @dev Deploys Treasury + Templ contracts. Factory is set as initial governance
-  ///      so it can later call setGovernance() to wire the real governance contract.
+  /// @dev Deploys Treasury + MemberPool + Templ contracts. Factory is set as
+  ///      initial governance so it can later call setGovernance() to wire the
+  ///      real governance contract.
   function _deploy(
     address priest,
     address token,
     uint256 baseEntryFee,
     string calldata slug,
-    CurveConfig memory curve,
-    uint256 referralShareBps
-  ) internal returns (address templ, address treasury) {
+    CurveConfig memory curve
+  ) internal returns (address templ, address treasury, address memberPool) {
     // Deterministic salt: keccak256(priest, token, baseEntryFee, slug).
     // All four fields contribute - same 4-tuple on any chain produces the same address.
     bytes memory encoded = abi.encode(priest, token, baseEntryFee, slug);
@@ -298,26 +311,39 @@ contract Factory is IFactory, Ownable {
       salt := keccak256(add(encoded, 0x20), mload(encoded))
     }
 
-    // Deploy Treasury first (templ not yet known, splits set later)
-    Treasury t = new Treasury{
-      salt: salt
-    }(
+    // Deploy Treasury first (templ + memberPool not yet known; wired below).
+    // The Treasury constructor only takes the token.
+    Treasury t = new Treasury{ salt: salt }(token);
+
+    // Deploy MemberPool (templ + treasury wired via one-shot setters below).
+    MemberPool pool = new MemberPool{ salt: salt }(token);
+
+    // Deploy Templ with Factory as initial governance, wiring both Treasury
+    // and MemberPool addresses up front. PROTOCOL_FEE_BPS is forwarded into
+    // the Templ constructor; the burn destination is left zero so Templ
+    // resolves to DEAD internally.
+    Templ newTempl = new Templ{ salt: salt }(
+      priest,
       token,
+      baseEntryFee,
+      curve,
+      address(t),
+      address(pool),
+      address(this),
       PROTOCOL_FEE_BPS,
-      address(0), // default burn address (0xdead inside constructor)
-      referralShareBps
+      address(0) // default burn address (0xdead inside constructor)
     );
 
-    // Deploy Templ with Factory as initial governance
-    Templ newTempl = new Templ{
-      salt: salt
-    }(priest, token, baseEntryFee, curve, address(t), address(this));
-
-    // Connect Treasury to its Templ
+    // One-shot wiring of cross-contract references. setTempl / setTreasury /
+    // setMemberPool revert on second call, so each can only ever fire once.
     t.setTempl(address(newTempl));
+    t.setMemberPool(address(pool));
+    pool.setTempl(address(newTempl));
+    pool.setTreasury(address(t));
 
     templ = address(newTempl);
     treasury = address(t);
+    memberPool = address(pool);
     _templs.push(templ);
     isTempl[templ] = true;
   }
@@ -332,7 +358,6 @@ contract Factory is IFactory, Ownable {
   ///      (immediateExecutionBps >= approvalThresholdBps), non-zero voting
   ///      period, and proposalFeeBps <= MAX_PROPOSAL_FEE_BPS. It does not
   ///      enforce minimum values for thresholds or delays.
-  // NOTE: Minimum-value enforcement tracked in #179.
   function _deployAndWireGovernance(
     address templ,
     GovernanceConfig calldata govConfig
@@ -350,7 +375,7 @@ contract Factory is IFactory, Ownable {
 
     // Hand off governance from Factory to the deployed contract.
     // This emits GovernanceUpdated + config events for the indexer.
-    Templ(templ).setGovernance(governance);
+    Templ(payable(templ)).setGovernance(governance);
   }
 
   /// @dev Validates slug: 1-64 chars, lowercase a-z, digits 0-9, hyphens.
@@ -387,18 +412,20 @@ contract Factory is IFactory, Ownable {
   function _emitTemplCreated(
     address templAddr,
     address treasury,
+    address memberPool,
     uint256 baseEntryFee,
     string calldata slug,
     string calldata name,
     string calldata description,
     string calldata logoLink
   ) internal {
-    Templ t = Templ(templAddr);
+    Templ t = Templ(payable(templAddr));
     emit TemplCreated(
       templAddr,
       t.priest(),
       t.TOKEN(),
       treasury,
+      memberPool,
       msg.sender,
       baseEntryFee,
       slug,

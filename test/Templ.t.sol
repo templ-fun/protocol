@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { MemberPool } from "../src/MemberPool.sol";
 import { Templ } from "../src/Templ.sol";
 import { Treasury } from "../src/Treasury.sol";
+import { IExecutable } from "../src/interfaces/IExecutable.sol";
 import { ITempl } from "../src/interfaces/ITempl.sol";
-import { ITreasury } from "../src/interfaces/ITreasury.sol";
 import {
   CurveConfig,
   CurveSegment,
@@ -23,9 +24,17 @@ import { Permit2Helper } from "./utils/Permit2Helper.sol";
 import { Test } from "forge-std/Test.sol";
 import { ISignatureTransfer } from "permit2/interfaces/ISignatureTransfer.sol";
 
+interface IERC20 {
+  function transfer(
+    address to,
+    uint256 amount
+  ) external returns (bool);
+}
+
 contract TemplTest is Test, Permit2Helper, ERC2612Helper {
   Templ public templ;
   Treasury public treasury;
+  MemberPool public pool;
   MockERC20 public token;
   MockERC20Permit public permitToken;
 
@@ -54,12 +63,64 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     uint256 entryFee
   ) internal returns (Templ t, Treasury tr) {
     MockFactory mf = new MockFactory(protocolRecipient);
-    tr = mf.deployTreasury(address(token), PROTOCOL_FEE_BPS, address(0), 2500);
-    t = new Templ(priest, address(token), entryFee, curve, address(tr), priest);
+    MemberPool p;
+    (tr, p) = mf.deployTreasuryAndPool(address(token));
+    t = new Templ(
+      priest,
+      address(token),
+      entryFee,
+      curve,
+      address(tr),
+      address(p),
+      priest,
+      PROTOCOL_FEE_BPS,
+      address(0)
+    );
     vm.prank(address(mf));
     tr.setTempl(address(t));
     vm.prank(address(mf));
-    tr.setFeeSplit(3000, 3000, 3000);
+    tr.setMemberPool(address(p));
+    vm.prank(address(mf));
+    p.setTempl(address(t));
+    vm.prank(address(mf));
+    p.setTreasury(address(tr));
+    // Bootstrap split config (priest doubles as governance in this fixture).
+    vm.prank(priest);
+    t.setFeeSplit(3000, 3000, 3000);
+    vm.prank(priest);
+    t.setReferralShareBps(2500);
+  }
+
+  function _deployTrio(
+    CurveConfig memory curve,
+    uint256 entryFee
+  ) internal returns (Templ t, Treasury tr, MemberPool p) {
+    MockFactory mf = new MockFactory(protocolRecipient);
+    (tr, p) = mf.deployTreasuryAndPool(address(token));
+    t = new Templ(
+      priest,
+      address(token),
+      entryFee,
+      curve,
+      address(tr),
+      address(p),
+      priest,
+      PROTOCOL_FEE_BPS,
+      address(0)
+    );
+    vm.prank(address(mf));
+    tr.setTempl(address(t));
+    vm.prank(address(mf));
+    tr.setMemberPool(address(p));
+    vm.prank(address(mf));
+    p.setTempl(address(t));
+    vm.prank(address(mf));
+    p.setTreasury(address(tr));
+    // Bootstrap split config.
+    vm.prank(priest);
+    t.setFeeSplit(3000, 3000, 3000);
+    vm.prank(priest);
+    t.setReferralShareBps(2500);
   }
 
   function _deployPermitPair(
@@ -67,23 +128,39 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     uint256 entryFee
   ) internal returns (Templ t, Treasury tr) {
     MockFactory mf = new MockFactory(protocolRecipient);
-    tr = mf.deployTreasury(
-      address(permitToken), PROTOCOL_FEE_BPS, address(0), 2500
-    );
+    MemberPool p;
+    (tr, p) = mf.deployTreasuryAndPool(address(permitToken));
     t = new Templ(
-      priest, address(permitToken), entryFee, curve, address(tr), priest
+      priest,
+      address(permitToken),
+      entryFee,
+      curve,
+      address(tr),
+      address(p),
+      priest,
+      PROTOCOL_FEE_BPS,
+      address(0)
     );
     vm.prank(address(mf));
     tr.setTempl(address(t));
     vm.prank(address(mf));
-    tr.setFeeSplit(3000, 3000, 3000);
+    tr.setMemberPool(address(p));
+    vm.prank(address(mf));
+    p.setTempl(address(t));
+    vm.prank(address(mf));
+    p.setTreasury(address(tr));
+    // Bootstrap split config.
+    vm.prank(priest);
+    t.setFeeSplit(3000, 3000, 3000);
+    vm.prank(priest);
+    t.setReferralShareBps(2500);
   }
 
   function setUp() public {
     _deployPermit2();
     token = new MockERC20();
     permitToken = new MockERC20Permit();
-    (templ, treasury) = _deployPair(_defaultCurve(), ENTRY_FEE);
+    (templ, treasury, pool) = _deployTrio(_defaultCurve(), ENTRY_FEE);
 
     token.mint(user1, 100_000e18);
     token.mint(user2, 100_000e18);
@@ -134,7 +211,7 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     assertEq(
       token.balanceOf(protocolRecipient) - protocolBefore, expectedProtocol
     );
-    assertGt(treasury.treasuryBalance(), 0);
+    assertGt(token.balanceOf(address(treasury)), 0);
   }
 
   function test_join_forSomeoneElse() public {
@@ -221,20 +298,22 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
 
     vm.startPrank(user1);
     token.approve(address(templ), ENTRY_FEE);
-    vm.expectEmit(false, false, false, true);
-    emit ITempl.EntryFeeUpdated(expectedNewFee);
+    vm.expectEmit(true, false, false, true);
+    emit ITempl.EntryFeeUpdated(address(templ), expectedNewFee);
     templ.join(user1, address(0));
     vm.stopPrank();
 
-    // Test setBaseEntryFee recalculates and emits EntryFeeUpdated
+    // Test setBaseEntryFee recalculates and emits BaseEntryFeeUpdated then EntryFeeUpdated
     uint256 newBase = 2000e18;
     uint256 expectedFeeAfterBaseChange = EntryFeeCurve.normalize(
       EntryFeeCurve.priceAtJoin(newBase, _defaultCurve(), templ.paidJoins())
     );
 
     vm.prank(priest);
-    vm.expectEmit(false, false, false, true);
-    emit ITempl.EntryFeeUpdated(expectedFeeAfterBaseChange);
+    vm.expectEmit(true, false, false, true);
+    emit ITempl.BaseEntryFeeUpdated(address(templ), newBase);
+    vm.expectEmit(true, false, false, true);
+    emit ITempl.EntryFeeUpdated(address(templ), expectedFeeAfterBaseChange);
     templ.setBaseEntryFee(newBase);
 
     assertEq(templ.baseEntryFee(), newBase);
@@ -261,25 +340,31 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
 
   // ============ Priest Functions ============
 
-  function test_withdraw_success() public {
+  function test_execute_treasuryTransferToken() public {
     vm.startPrank(user1);
     token.approve(address(templ), ENTRY_FEE);
     templ.join(user1, address(0));
     vm.stopPrank();
 
-    uint256 treasuryBal = treasury.treasuryBalance();
+    uint256 treasuryBal = token.balanceOf(address(treasury));
     address recipient = makeAddr("recipient");
 
     vm.prank(priest);
-    treasury.withdraw(recipient, treasuryBal);
+    treasury.execute(
+      address(token),
+      0,
+      abi.encodeCall(IERC20.transfer, (recipient, treasuryBal))
+    );
 
     assertEq(token.balanceOf(recipient), treasuryBal);
   }
 
-  function test_withdraw_revertsIfNotGovernance() public {
-    vm.expectRevert(ITreasury.NotGovernance.selector);
+  function test_execute_revertsIfNotGovernance() public {
+    vm.expectRevert(IExecutable.NotGovernance.selector);
     vm.prank(user1);
-    treasury.withdraw(user1, 100);
+    treasury.execute(
+      address(token), 0, abi.encodeCall(IERC20.transfer, (user1, 100))
+    );
   }
 
   function test_transferPriest_success() public {
@@ -851,9 +936,9 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
   // ============ Zero Fee (Free Join) ============
   // When entryFee is zero, the three permit-based join methods skip the
   // signature/permit logic entirely and behave like plain join(). These tests
-  // pass deliberately zeroed permit data to confirm the guard is in place.
-  // Any refactor that moves the permit call or token check outside the fee
-  // guard will fail here - the calls would revert on the zeroed signature.
+  // pass deliberately zeroed permit data to confirm the guard is in place:
+  // any wiring that runs the permit call or token check outside the fee guard
+  // would fail these tests because the calls revert on the zeroed signature.
 
   function test_joinWithERC2612Permit_zeroFee_skipsPermit() public {
     (Templ free,) = _deployPermitPair(_staticCurve(), 0);
@@ -960,11 +1045,11 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     assertEq(templ.governance(), priest);
   }
 
-  /// @dev H-01 regression: a malicious governance contract must NOT be able
-  ///      to drain the treasury during its own emitConfig() callback. The fix
-  ///      is to update Templ.governance AFTER the emitConfig() call so the
-  ///      Treasury's _checkGovernance still resolves to the old (trusted)
-  ///      address during the callback, making Treasury.withdraw() revert.
+  /// @dev A malicious governance contract must not be able to drain the
+  ///      treasury during its own emitConfig() callback. Templ updates its
+  ///      governance pointer AFTER the emitConfig() call so Treasury's
+  ///      _checkGovernance resolves to the prior (trusted) address during the
+  ///      callback, making Treasury.execute() revert.
   function test_setGovernance_cannotDrainTreasuryViaEmitConfig() public {
     // Seed the treasury by having two real members join.
     vm.startPrank(user1);
@@ -977,7 +1062,7 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     templ.join(user2, address(0));
     vm.stopPrank();
 
-    uint256 availableBefore = treasury.treasuryBalance();
+    uint256 availableBefore = token.balanceOf(address(treasury));
     assertGt(availableBefore, 0, "treasury should hold withdrawable funds");
 
     // Deploy a malicious governance that will drain the treasury to `attacker`
@@ -989,9 +1074,9 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     uint256 attackerBalanceBefore = token.balanceOf(attacker);
 
     // Priest is the initial governance. It calls setGovernance(malicious).
-    // If the fix is in place, the emitConfig() callback runs while
-    // Templ.governance() still points at the priest, so Treasury.withdraw()
-    // reverts with NotGovernance and the whole setGovernance call reverts.
+    // The emitConfig() callback runs while Templ.governance() still points at
+    // the priest, so Treasury.execute() reverts with NotGovernance and the
+    // whole setGovernance call reverts.
     vm.prank(priest);
     vm.expectRevert();
     templ.setGovernance(address(malicious));
@@ -1000,7 +1085,77 @@ contract TemplTest is Test, Permit2Helper, ERC2612Helper {
     assertEq(templ.governance(), priest);
 
     // Treasury must still hold the full amount.
-    assertEq(treasury.treasuryBalance(), availableBefore);
+    assertEq(token.balanceOf(address(treasury)), availableBefore);
     assertEq(token.balanceOf(attacker), attackerBalanceBefore);
+  }
+
+  // ============ Templ programmable vault: execute / receive / onERC721 ============
+
+  function test_templ_execute_revertsIfNotGovernance() public {
+    vm.prank(user1);
+    vm.expectRevert(IExecutable.NotGovernance.selector);
+    templ.execute(
+      address(token), 0, abi.encodeCall(IERC20.transfer, (user1, 1))
+    );
+  }
+
+  function test_templ_execute_transfersTokenViaGovernance() public {
+    // Donate tokens directly to Templ so it has something to move.
+    uint256 donation = 500e18;
+    token.mint(address(this), donation);
+    require(token.transfer(address(templ), donation), "donate");
+
+    address recipient = makeAddr("recipient");
+    vm.prank(priest);
+    templ.execute(
+      address(token), 0, abi.encodeCall(IERC20.transfer, (recipient, donation))
+    );
+
+    assertEq(token.balanceOf(recipient), donation);
+    assertEq(token.balanceOf(address(templ)), 0);
+  }
+
+  function test_templ_execute_emitsExecuted() public {
+    uint256 donation = 100e18;
+    token.mint(address(this), donation);
+    require(token.transfer(address(templ), donation), "donate");
+
+    address recipient = makeAddr("recipient");
+    bytes memory data = abi.encodeCall(IERC20.transfer, (recipient, donation));
+
+    vm.expectEmit(true, false, false, true, address(templ));
+    emit IExecutable.Executed(address(token), 0, data);
+
+    vm.prank(priest);
+    templ.execute(address(token), 0, data);
+  }
+
+  function test_templ_execute_canSendNativeETH() public {
+    vm.deal(address(this), 1 ether);
+    (bool sent,) = address(templ).call{ value: 1 ether }("");
+    assertTrue(sent);
+    assertEq(address(templ).balance, 1 ether);
+
+    address payable recipient = payable(makeAddr("eth-recipient"));
+    uint256 before = recipient.balance;
+
+    vm.prank(priest);
+    templ.execute(recipient, 1 ether, "");
+
+    assertEq(recipient.balance - before, 1 ether);
+    assertEq(address(templ).balance, 0);
+  }
+
+  function test_templ_receive_acceptsETH() public {
+    vm.deal(address(this), 2 ether);
+    uint256 before = address(templ).balance;
+    (bool sent,) = address(templ).call{ value: 2 ether }("");
+    assertTrue(sent);
+    assertEq(address(templ).balance - before, 2 ether);
+  }
+
+  function test_templ_onERC721Received_returnsMagicValue() public view {
+    bytes4 magic = templ.onERC721Received(address(0), address(0), 0, "");
+    assertEq(magic, bytes4(0x150b7a02));
   }
 }

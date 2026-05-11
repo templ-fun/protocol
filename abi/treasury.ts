@@ -1,87 +1,55 @@
 /**
  * TREASURY ABI - minimal subset used by the web app
  * Full ABI: abi/Treasury.json
+ *
+ * Treasury is a minimal vault. The burn / treasury / member-pool BPS triple,
+ * the burn destination, the referral share, the protocol BPS, and the
+ * cumulative `totalBurned` counter live on Templ; web consumers that need
+ * any of those values should reach for `TEMPL_ABI` instead.
+ *
+ * What lives here:
+ *   - TOKEN()       - the ERC-20 used for entry fees / treasury custody
+ *   - MEMBER_POOL() - the linked MemberPool contract (where dissolve forwards)
+ *   - dissolve()    - governance-only escape hatch
+ *
+ * Member-claimable funds live in the companion MemberPool contract -
+ * see abi/member-pool.ts.
+ *
+ * Treasury exposes a generic programmable-vault `execute(target, value, data)`
+ * surface for arbitrary asset movement; consumers that need the live treasury
+ * balance should read TOKEN() and call `IERC20.balanceOf(treasury)` directly.
  */
 export const TREASURY_ABI = [
   {
     type: "function",
-    name: "burnBps",
+    name: "TOKEN",
     stateMutability: "view",
     inputs: [],
-    outputs: [{ type: "uint256" }],
+    outputs: [{ type: "address" }],
   },
   {
     type: "function",
-    name: "treasuryBps",
+    name: "MEMBER_POOL",
     stateMutability: "view",
     inputs: [],
-    outputs: [{ type: "uint256" }],
+    outputs: [{ type: "address" }],
   },
   {
     type: "function",
-    name: "memberPoolBps",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "PROTOCOL_BPS",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "referralShareBps",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "treasuryBalance",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "memberPoolBalance",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "totalBurned",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "getClaimableRewards",
-    stateMutability: "view",
-    inputs: [{ name: "member", type: "address" }],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "claimRewards",
+    name: "dissolve",
     stateMutability: "nonpayable",
-    inputs: [{ name: "member", type: "address" }],
+    inputs: [],
     outputs: [],
   },
   {
     type: "function",
-    name: "setFeeSplit",
+    name: "execute",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "_burnBps", type: "uint256" },
-      { name: "_treasuryBps", type: "uint256" },
-      { name: "_memberPoolBps", type: "uint256" },
+      { name: "target", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "data", type: "bytes" },
     ],
-    outputs: [],
+    outputs: [{ name: "result", type: "bytes" }],
   },
 ] as const;

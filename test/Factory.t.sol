@@ -5,6 +5,7 @@ import { CouncilDeployer } from "../src/CouncilDeployer.sol";
 import { DemocracyDeployer } from "../src/DemocracyDeployer.sol";
 import { Factory } from "../src/Factory.sol";
 import { GovernanceDeployer } from "../src/GovernanceDeployer.sol";
+import { MemberPool } from "../src/MemberPool.sol";
 import { Templ } from "../src/Templ.sol";
 import { Treasury } from "../src/Treasury.sol";
 import {
@@ -21,7 +22,7 @@ import {
   EntryFeeCurve
 } from "../src/libraries/EntryFeeCurve.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 
 contract FactoryTest is Test {
@@ -37,8 +38,6 @@ contract FactoryTest is Test {
 
   // Sensible explicit values used by the test fixture. The Factory does not
   // substitute defaults, so every test config provides these explicitly.
-  // These values match the previously hardcoded contract defaults so existing
-  // tests behave the same way after the substitution was removed.
   function _sensibleGov() internal pure returns (GovernanceConfig memory) {
     return GovernanceConfig({
       mode: GovMode.Democracy,
@@ -93,18 +92,19 @@ contract FactoryTest is Test {
     internal
     returns (GovernanceDeployer gd)
   {
-    DemocracyDeployer dd = new DemocracyDeployer();
-    CouncilDeployer cd = new CouncilDeployer();
-    gd = new GovernanceDeployer(address(dd), address(cd));
+    DemocracyDeployer dd = new DemocracyDeployer(address(this));
+    CouncilDeployer cd = new CouncilDeployer(address(this));
+    gd = new GovernanceDeployer(address(dd), address(cd), address(this));
     cd.setGovernanceDeployer(address(gd));
     dd.setGovernanceDeployer(address(gd));
   }
 
   function setUp() public {
-    DemocracyDeployer demDeployer = new DemocracyDeployer();
-    CouncilDeployer councilDeployer = new CouncilDeployer();
-    GovernanceDeployer govDeployer =
-      new GovernanceDeployer(address(demDeployer), address(councilDeployer));
+    DemocracyDeployer demDeployer = new DemocracyDeployer(address(this));
+    CouncilDeployer councilDeployer = new CouncilDeployer(address(this));
+    GovernanceDeployer govDeployer = new GovernanceDeployer(
+      address(demDeployer), address(councilDeployer), address(this)
+    );
     factory = new Factory(address(this), address(govDeployer), true);
 
     // Lock the access control chain
@@ -122,6 +122,38 @@ contract FactoryTest is Test {
     assertEq(factory.protocolFeeRecipient(), address(this));
     assertEq(factory.PROTOCOL_FEE_BPS(), 1000);
     assertTrue(factory.isOpen());
+  }
+
+  /// @dev Indexers rely on genesis values arriving via events rather than
+  ///      reading constructor args. The Factory must emit OpenUpdated and
+  ///      ProtocolFeeRecipientUpdated during deployment.
+  function test_constructor_emitsGenesisEvents() public {
+    GovernanceDeployer gd = _newWiredGovernanceDeployer();
+    address owner = makeAddr("owner");
+
+    vm.expectEmit(true, true, true, true);
+    emit IFactory.ProtocolFeeRecipientUpdated(owner);
+    vm.expectEmit(true, true, true, true);
+    emit IFactory.OpenUpdated(true);
+    Factory deployed = new Factory(owner, address(gd), true);
+    gd.setFactory(address(deployed));
+
+    assertEq(deployed.protocolFeeRecipient(), owner);
+    assertTrue(deployed.isOpen());
+  }
+
+  function test_constructor_emitsGenesisEvents_closedFactory() public {
+    GovernanceDeployer gd = _newWiredGovernanceDeployer();
+    address owner = makeAddr("owner");
+
+    vm.expectEmit(true, true, true, true);
+    emit IFactory.ProtocolFeeRecipientUpdated(owner);
+    vm.expectEmit(true, true, true, true);
+    emit IFactory.OpenUpdated(false);
+    Factory deployed = new Factory(owner, address(gd), false);
+    gd.setFactory(address(deployed));
+
+    assertFalse(deployed.isOpen());
   }
 
   // ============ CreateTempl ============
@@ -143,7 +175,7 @@ contract FactoryTest is Test {
       _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    assertEq(Templ(templ).priest(), creator);
+    assertEq(Templ(payable(templ)).priest(), creator);
   }
 
   function test_createTempl_setsCorrectParams() public {
@@ -152,14 +184,14 @@ contract FactoryTest is Test {
       _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    assertEq(Templ(templ).TOKEN(), address(token));
-    assertEq(Templ(templ).entryFee(), BASE_ENTRY_FEE);
-    assertEq(Templ(templ).baseEntryFee(), BASE_ENTRY_FEE);
-    assertEq(Templ(templ).priest(), creator);
-    assertEq(Templ(templ).paidJoins(), 0);
+    assertEq(Templ(payable(templ)).TOKEN(), address(token));
+    assertEq(Templ(payable(templ)).entryFee(), BASE_ENTRY_FEE);
+    assertEq(Templ(payable(templ)).baseEntryFee(), BASE_ENTRY_FEE);
+    assertEq(Templ(payable(templ)).priest(), creator);
+    assertEq(Templ(payable(templ)).paidJoins(), 0);
 
     // Treasury is connected
-    address treasuryAddr = address(Templ(templ).TREASURY());
+    address treasuryAddr = address(Templ(payable(templ)).TREASURY());
     assertTrue(treasuryAddr != address(0));
   }
 
@@ -182,10 +214,11 @@ contract FactoryTest is Test {
       })
     );
 
-    Treasury treasury = Treasury(address(Templ(templ).TREASURY()));
-    assertEq(treasury.burnBps(), 5000);
-    assertEq(treasury.treasuryBps(), 2000);
-    assertEq(treasury.memberPoolBps(), 2000);
+    // Fee-split knobs live on Templ.
+    Templ t = Templ(payable(templ));
+    assertEq(t.burnBps(), 5000);
+    assertEq(t.treasuryBps(), 2000);
+    assertEq(t.memberPoolBps(), 2000);
   }
 
   function test_createTempl_customReferralShare() public {
@@ -207,13 +240,59 @@ contract FactoryTest is Test {
       })
     );
 
-    Treasury treasury = Treasury(address(Templ(templ).TREASURY()));
-    assertEq(treasury.referralShareBps(), 5000);
+    // referralShareBps lives on Templ.
+    assertEq(Templ(payable(templ)).referralShareBps(), 5000);
+  }
+
+  /// @dev The indexer hydrates initial fee-split state from events fired
+  ///      during createTempl. This test asserts that the genesis
+  ///      ReferralShareBpsUpdated and BurnAddressUpdated events are emitted
+  ///      in the same tx as TemplCreated. The events fire from Templ.
+  function test_createTempl_emitsTreasuryBootstrapEvents() public {
+    vm.recordLogs();
+    vm.prank(creator);
+    address templ = factory.createTempl(
+      _createConfig(address(token), BASE_ENTRY_FEE, "bootstrap-events")
+    );
+
+    Vm.Log[] memory entries = vm.getRecordedLogs();
+
+    bytes32 sigReferral = keccak256("ReferralShareBpsUpdated(address,uint256)");
+    bytes32 sigBurnAddr = keccak256("BurnAddressUpdated(address,address)");
+    bytes32 sigFeeSplit =
+      keccak256("FeeSplitUpdated(address,uint256,uint256,uint256)");
+
+    bool sawReferral;
+    bool sawBurnAddress;
+    bool sawFeeSplit;
+    for (uint256 i; i < entries.length; ++i) {
+      Vm.Log memory log = entries[i];
+      if (log.emitter != templ) continue;
+      bytes32 sig = log.topics[0];
+      address indexedTempl = address(uint160(uint256(log.topics[1])));
+      if (indexedTempl != templ) continue;
+      if (sig == sigReferral) {
+        sawReferral = true;
+        assertEq(abi.decode(log.data, (uint256)), 2500);
+      } else if (sig == sigBurnAddr) {
+        sawBurnAddress = true;
+        // Resolved DEAD address (since config passes address(0))
+        assertEq(
+          address(uint160(uint256(log.topics[2]))),
+          0x000000000000000000000000000000000000dEaD
+        );
+      } else if (sig == sigFeeSplit) {
+        sawFeeSplit = true;
+      }
+    }
+
+    assertTrue(sawFeeSplit, "FeeSplitUpdated missing");
+    assertTrue(sawReferral, "ReferralShareBpsUpdated missing");
+    assertTrue(sawBurnAddress, "BurnAddressUpdated missing");
   }
 
   function test_createTempl_zeroReferralShareIsStoredLiterally() public {
-    // Regression: the Factory used to substitute DEFAULT_REFERRAL_SHARE_BPS
-    // when callers passed 0. After removing all default substitution, 0 must
+    // The Factory does not substitute a default when callers pass 0; 0 must
     // be stored as 0 (no referral kickbacks at all).
     vm.prank(creator);
     address templ = factory.createTempl(
@@ -233,8 +312,8 @@ contract FactoryTest is Test {
       })
     );
 
-    Treasury treasury = Treasury(address(Templ(templ).TREASURY()));
-    assertEq(treasury.referralShareBps(), 0);
+    // referralShareBps lives on Templ.
+    assertEq(Templ(payable(templ)).referralShareBps(), 0);
   }
 
   function test_createTempl_revertsIfBadSplitSum() public {
@@ -271,8 +350,8 @@ contract FactoryTest is Test {
       factory.createTempl(_createConfig(address(token), 0, "free-templ"));
 
     assertTrue(templ != address(0));
-    assertEq(Templ(templ).entryFee(), 0);
-    assertEq(Templ(templ).baseEntryFee(), 0);
+    assertEq(Templ(payable(templ)).entryFee(), 0);
+    assertEq(Templ(payable(templ)).baseEntryFee(), 0);
   }
 
   function test_createTempl_revertsIfBaseFeeUnderMinimum() public {
@@ -297,8 +376,8 @@ contract FactoryTest is Test {
       user, _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    assertEq(Templ(templ).priest(), user);
-    assertTrue(Templ(templ).isMember(user));
+    assertEq(Templ(payable(templ)).priest(), user);
+    assertTrue(Templ(payable(templ)).isMember(user));
   }
 
   function test_createTemplFor_revertsIfZeroPriest() public {
@@ -317,7 +396,7 @@ contract FactoryTest is Test {
       _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     token.mint(user, BASE_ENTRY_FEE);
 
     vm.startPrank(user);
@@ -335,7 +414,7 @@ contract FactoryTest is Test {
       _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     token.mint(user, BASE_ENTRY_FEE);
 
     vm.startPrank(user);
@@ -353,7 +432,7 @@ contract FactoryTest is Test {
       _createConfig(address(token), BASE_ENTRY_FEE, "test")
     );
 
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     token.mint(user, BASE_ENTRY_FEE);
 
     address feeRecipient = factory.protocolFeeRecipient();
@@ -462,7 +541,7 @@ contract FactoryTest is Test {
       _createConfig(address(token), _baseEntryFee, "fuzz")
     );
 
-    assertEq(Templ(templ).entryFee(), _baseEntryFee);
+    assertEq(Templ(payable(templ)).entryFee(), _baseEntryFee);
   }
 
   function testFuzz_createMultipleTempls(
@@ -507,7 +586,8 @@ contract FactoryTest is Test {
   }
 
   function test_createTempl_rejectsFiniteOnlyCurve() public {
-    // Issue #90 PoC: finite-only curve deploys but bricks after N joins
+    // A finite-only curve would deploy but brick after N joins, so the
+    // Factory must reject it at creation time.
     CurveConfig memory curve;
     curve.primary = CurveSegment({
       style: CurveStyle.Exponential, rateBps: 10_094, length: 100
@@ -558,7 +638,7 @@ contract FactoryTest is Test {
     vm.prank(creator);
     address templAddr =
       factory.createTempl(_createConfig(address(token), 0, "free"));
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
 
     // User joins without any tokens or approvals
     vm.prank(user);
@@ -574,16 +654,18 @@ contract FactoryTest is Test {
     vm.prank(creator);
     address templAddr =
       factory.createTempl(_createConfig(address(token), 0, "free-splits"));
-    Templ templ = Templ(templAddr);
-    Treasury treasury = Treasury(address(templ.TREASURY()));
+    Templ templ = Templ(payable(templAddr));
+    Treasury treasury = Treasury(payable(address(templ.TREASURY())));
 
     vm.prank(user);
     templ.join(user, address(0));
 
     // All balances stay at zero
-    assertEq(treasury.treasuryBalance(), 0);
-    assertEq(treasury.memberPoolBalance(), 0);
-    assertEq(treasury.totalBurned(), 0);
+    assertEq(token.balanceOf(address(treasury)), 0);
+    MemberPool pool = MemberPool(address(templ.MEMBER_POOL()));
+    assertEq(pool.totalDeposited(), 0);
+    // totalBurned lives on Templ.
+    assertEq(templ.totalBurned(), 0);
     assertEq(token.balanceOf(protocolRecipient), 0);
   }
 
@@ -591,7 +673,7 @@ contract FactoryTest is Test {
     vm.prank(creator);
     address templAddr =
       factory.createTempl(_createConfig(address(token), 0, "free-multi"));
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
 
     // 10 users join for free
     for (uint256 i; i < 10; ++i) {
@@ -607,14 +689,13 @@ contract FactoryTest is Test {
 
   function test_sensibleConfig_300Members_proposalLifecycle() public {
     // Create templ with the standard test fixture (sensible explicit values).
-    // Used to test that the factory's "default substitution" worked end-to-end;
-    // post-removal it tests the same lifecycle with the explicit values that
-    // the UI / scripts now provide on every deploy.
+    // Exercises the full proposal lifecycle with the explicit values that the
+    // UI / scripts provide on every deploy.
     vm.prank(creator);
     address templAddr = factory.createTempl(
       _createConfig(address(token), BASE_ENTRY_FEE, "scale-test")
     );
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     address govAddr = templ.governance();
 
     // Join 300 members (past the 249 growth phase into static tail)
@@ -791,12 +872,12 @@ contract FactoryTest is Test {
     assertEq(f.protocolFeeRecipient(), explicitOwner);
   }
 
-  /// @dev Regression test for the salt-21 deploy bug where the Factory was
-  ///      deployed via the deterministic deployment proxy (CREATE2) and ended
-  ///      up with `owner() == 0x4e59...` (the proxy address) because the old
-  ///      constructor used `msg.sender` for ownership. The fix is the
-  ///      `_initialOwner` parameter with a `tx.origin` fallback. Simulate the
-  ///      proxy deploy by setting `msg.sender` and `tx.origin` independently.
+  /// @dev When the Factory is deployed via the deterministic deployment
+  ///      proxy (CREATE2), `msg.sender` is the proxy address (0x4e59...),
+  ///      not the EOA that triggered the deploy. The constructor takes an
+  ///      explicit `_initialOwner` parameter with a `tx.origin` fallback so
+  ///      ownership lands on the EOA, not the proxy. Simulate the proxy
+  ///      deploy by setting `msg.sender` and `tx.origin` independently.
   function test_initialOwner_fallbackToTxOrigin() public {
     address proxy = makeAddr("deterministicDeployerProxy");
     address deployerEoa = makeAddr("deployerEoa");
@@ -858,7 +939,7 @@ contract FactoryTest is Test {
     factory.setProtocolFeeRecipient(newRecipient);
 
     // Join - protocol fees should go to the new recipient
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     uint256 fee = templ.entryFee();
     token.mint(user, fee);
 
@@ -875,17 +956,14 @@ contract FactoryTest is Test {
     );
   }
 
-  // ============ No-Defaults Regression (templ-fun/templ.fun#31) ============
+  // ============ No Defaults: 0 means 0 ============
   //
-  // The Factory used to substitute hardcoded defaults whenever a caller passed
-  // 0 for any of the governance/economic params. This made it impossible to
-  // express e.g. `proposalFeeBps = 0` (free proposals) or `executionDelay = 0`
-  // (instant execution) at deploy time, and silently produced surprising
-  // configurations when scripts/UIs passed 0 thinking it meant "literal zero".
-  //
-  // The fix removed all default substitution from the Factory. The contract
-  // now stores every value as-is. UI / scripts are responsible for sensible
-  // defaults. The tests below pin this contract: passing 0 must store 0.
+  // The Factory does not substitute defaults for any governance/economic
+  // param. Every value is stored as-is so that callers can express e.g.
+  // `proposalFeeBps = 0` (free proposals) or `executionDelay = 0` (instant
+  // execution) at deploy time. UI / scripts are responsible for picking
+  // sensible defaults. The tests below pin this contract: passing 0 must
+  // store 0.
 
   function test_noDefaults_zeroProposalFeeIsFree() public {
     GovernanceConfig memory gov = _sensibleGov();
@@ -909,7 +987,7 @@ contract FactoryTest is Test {
       })
     );
 
-    address govAddr = Templ(templAddr).governance();
+    address govAddr = Templ(payable(templAddr)).governance();
     assertEq(IGovernance(govAddr).proposalFeeBps(), 0);
   }
 
@@ -935,23 +1013,23 @@ contract FactoryTest is Test {
       })
     );
 
-    address govAddr = Templ(templAddr).governance();
+    address govAddr = Templ(payable(templAddr)).governance();
     assertEq(IGovernance(govAddr).executionDelay(), 0);
   }
 
   function test_noDefaults_governanceParamsStoredVerbatim() public {
     // Spot-check every governance param: pass an unusual but valid explicit
-    // value, then read it back from the deployed Governance contract. None
-    // of these match the previous defaults, so any silent substitution would
-    // surface immediately as a failed assertion.
+    // value, then read it back from the deployed Governance contract. The
+    // values below are deliberately offbeat so any silent substitution by the
+    // Factory would surface immediately as a failed assertion.
     GovernanceConfig memory gov = GovernanceConfig({
       mode: GovMode.Democracy,
-      approvalThresholdBps: 6000, // not the old default of 5100
-      quorumBps: 2000, // not 1000
-      votingPeriod: 5 days, // not 3 days
-      executionDelay: 12 hours, // not 1 day
-      immediateExecutionBps: 7500, // not 10000 - must be >= approvalThresholdBps
-      proposalFeeBps: 1234, // not 2500
+      approvalThresholdBps: 6000,
+      quorumBps: 2000,
+      votingPeriod: 5 days,
+      executionDelay: 12 hours,
+      immediateExecutionBps: 7500, // must be >= approvalThresholdBps
+      proposalFeeBps: 1234,
       council: new address[](0)
     });
 
@@ -973,7 +1051,7 @@ contract FactoryTest is Test {
       })
     );
 
-    address govAddr = Templ(templAddr).governance();
+    address govAddr = Templ(payable(templAddr)).governance();
     assertEq(IGovernance(govAddr).approvalThresholdBps(), 6000);
     assertEq(IGovernance(govAddr).quorumBps(), 2000);
     assertEq(IGovernance(govAddr).votingPeriod(), 5 days);
@@ -983,8 +1061,9 @@ contract FactoryTest is Test {
   }
 
   function test_noDefaults_zeroSplitsRevert() public {
-    // Previously, all-three-zero meant "use default splits". Now it must fail
-    // the sum check (0 + 0 + 0 + 1000 protocol = 1000 != 10000).
+    // All-three-zero must fail the sum check
+    // (0 + 0 + 0 + 1000 protocol = 1000 != 10000) rather than triggering
+    // any default substitution.
     vm.prank(creator);
     vm.expectRevert(IFactory.InvalidSplit.selector);
     factory.createTempl(
@@ -1006,9 +1085,9 @@ contract FactoryTest is Test {
   }
 
   function test_noDefaults_staticCurveIsAccepted() public {
-    // Previously, an empty primary segment triggered substitution of the
-    // default exponential curve. Now `{ Static, 0, 0 }` must be accepted as
-    // a literal single-segment static infinite curve (flat fee forever).
+    // `{ Static, 0, 0 }` must be accepted as a literal single-segment static
+    // infinite curve (flat fee forever) rather than triggering default
+    // substitution.
     CurveConfig memory flatCurve;
     flatCurve.primary =
       CurveSegment({ style: CurveStyle.Static, rateBps: 0, length: 0 });
@@ -1031,7 +1110,7 @@ contract FactoryTest is Test {
       })
     );
 
-    Templ templ = Templ(templAddr);
+    Templ templ = Templ(payable(templAddr));
     assertEq(templ.entryFee(), BASE_ENTRY_FEE);
 
     // Fee should NOT grow after a join (flat curve, not the old exponential default)
@@ -1047,7 +1126,7 @@ contract FactoryTest is Test {
   // ============ Deployer Access Control ============
 
   function test_councilDeployer_directCallReverts() public {
-    CouncilDeployer cd = new CouncilDeployer();
+    CouncilDeployer cd = new CouncilDeployer(address(this));
     cd.setGovernanceDeployer(makeAddr("govDeployer"));
 
     address[] memory council = new address[](1);
@@ -1060,7 +1139,7 @@ contract FactoryTest is Test {
   }
 
   function test_democracyDeployer_directCallReverts() public {
-    DemocracyDeployer dd = new DemocracyDeployer();
+    DemocracyDeployer dd = new DemocracyDeployer(address(this));
     dd.setGovernanceDeployer(makeAddr("govDeployer"));
 
     vm.expectRevert(DemocracyDeployer.NotAuthorized.selector);
@@ -1080,7 +1159,7 @@ contract FactoryTest is Test {
   function test_councilDeployer_setGovernanceDeployer_revertsOnSecondCall()
     public
   {
-    CouncilDeployer cd = new CouncilDeployer();
+    CouncilDeployer cd = new CouncilDeployer(address(this));
     cd.setGovernanceDeployer(makeAddr("govDeployer"));
 
     vm.expectRevert(CouncilDeployer.AlreadyInitialized.selector);
@@ -1090,7 +1169,7 @@ contract FactoryTest is Test {
   function test_democracyDeployer_setGovernanceDeployer_revertsOnSecondCall()
     public
   {
-    DemocracyDeployer dd = new DemocracyDeployer();
+    DemocracyDeployer dd = new DemocracyDeployer(address(this));
     dd.setGovernanceDeployer(makeAddr("govDeployer"));
 
     vm.expectRevert(DemocracyDeployer.AlreadyInitialized.selector);
@@ -1108,7 +1187,7 @@ contract FactoryTest is Test {
   function test_councilDeployer_setGovernanceDeployer_revertsOnZeroAddress()
     public
   {
-    CouncilDeployer cd = new CouncilDeployer();
+    CouncilDeployer cd = new CouncilDeployer(address(this));
     vm.expectRevert(CouncilDeployer.ZeroAddress.selector);
     cd.setGovernanceDeployer(address(0));
   }
@@ -1116,7 +1195,7 @@ contract FactoryTest is Test {
   function test_democracyDeployer_setGovernanceDeployer_revertsOnZeroAddress()
     public
   {
-    DemocracyDeployer dd = new DemocracyDeployer();
+    DemocracyDeployer dd = new DemocracyDeployer(address(this));
     vm.expectRevert(DemocracyDeployer.ZeroAddress.selector);
     dd.setGovernanceDeployer(address(0));
   }

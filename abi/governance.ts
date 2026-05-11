@@ -218,6 +218,28 @@ export const GOVERNANCE_ABI = [
     outputs: [{ name: "", type: "bool" }],
     stateMutability: "view",
   },
+  {
+    type: "function",
+    name: "councilSize",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  // Council membership management (called via governance proposals targeting the council contract itself)
+  {
+    type: "function",
+    name: "addCouncilMember",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "removeCouncilMember",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
   // Parameter setters (called via governance proposals targeting the governance contract itself)
   {
     type: "function",
@@ -279,6 +301,7 @@ export const GOVERNANCE_ABI = [
       { name: "values", type: "uint256[]", indexed: false },
       { name: "calldatas", type: "bytes[]", indexed: false },
       { name: "description", type: "string", indexed: false },
+      { name: "quorumExempt", type: "bool", indexed: false },
     ],
   },
   {

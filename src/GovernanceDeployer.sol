@@ -18,20 +18,31 @@ contract GovernanceDeployer {
   DemocracyDeployer public immutable DEMOCRACY_DEPLOYER;
   CouncilDeployer public immutable COUNCIL_DEPLOYER;
 
+  /// @notice EOA that deployed the infrastructure - only address allowed to
+  ///         call setFactory. Prevents front-running on chains with public
+  ///         mempools.
+  address public immutable DEPLOYER_EOA;
+
   address public factory;
 
   constructor(
     address _democracyDeployer,
-    address _councilDeployer
+    address _councilDeployer,
+    address _deployerEoa
   ) {
+    if (_deployerEoa == address(0)) revert ZeroAddress();
     DEMOCRACY_DEPLOYER = DemocracyDeployer(_democracyDeployer);
     COUNCIL_DEPLOYER = CouncilDeployer(_councilDeployer);
+    DEPLOYER_EOA = _deployerEoa;
   }
 
   /// @notice One-shot setter - locks the Factory address permanently.
+  ///         Restricted to DEPLOYER_EOA to prevent front-running between
+  ///         deployment and initialization.
   function setFactory(
     address _factory
   ) external {
+    if (msg.sender != DEPLOYER_EOA) revert NotAuthorized();
     if (factory != address(0)) revert AlreadyInitialized();
     if (_factory == address(0)) revert ZeroAddress();
     factory = _factory;

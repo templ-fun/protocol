@@ -69,7 +69,6 @@ contract JoinWithNative is ReentrancyGuardTransient {
     // The fee read from entryFee() can be stale - the fee can change between our
     // read and join()'s transferFrom (up from new joins, or down from governance).
     // Unwrap any WETH the Templ did not pull.
-    // NOTE: Fee increase between read and join tracked in #181.
     uint256 wethBalance = WRAPPED_NATIVE.balanceOf(address(this));
     if (wethBalance > 0) {
       WRAPPED_NATIVE.withdraw(wethBalance);
@@ -87,6 +86,5 @@ contract JoinWithNative is ReentrancyGuardTransient {
   ///      joinWithNative is nonReentrant and drains the full ETH balance before
   ///      returning, so excess from rounding or fee changes is refunded. However,
   ///      ETH force-sent via selfdestruct or coinbase is not recoverable.
-  // NOTE: Force-sent ETH recovery tracked in #175.
   receive() external payable { }
 }

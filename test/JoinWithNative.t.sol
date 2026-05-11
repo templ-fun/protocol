@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { MemberPool } from "../src/MemberPool.sol";
 import { Templ } from "../src/Templ.sol";
 import { Treasury } from "../src/Treasury.sol";
 import { ITempl } from "../src/interfaces/ITempl.sol";
@@ -16,6 +17,9 @@ import { SafeTransferLib } from "solady/utils/SafeTransferLib.sol";
 ///      but join() pulls a lower amount, as if governance lowered the fee
 ///      between the read and the transferFrom.
 contract MockTOCTOUTempl {
+  // Mirrors the production Templ's "morally immutable" naming for consistency
+  // with the contract under test. See src/Templ.sol storage block.
+  // forge-lint: disable-next-line(mixed-case-variable)
   address public TOKEN;
   uint256 public entryFee;
   uint256 public actualFee;
@@ -79,14 +83,30 @@ contract JoinWithNativeTest is Test {
     address tokenAddr
   ) internal returns (Templ t, Treasury tr) {
     MockFactory mf = new MockFactory(protocolRecipient);
-    tr = mf.deployTreasury(tokenAddr, PROTOCOL_FEE_BPS, address(0), 2500);
+    MemberPool p;
+    (tr, p) = mf.deployTreasuryAndPool(tokenAddr);
     t = new Templ(
-      priest, tokenAddr, ENTRY_FEE, _defaultCurve(), address(tr), address(this)
+      priest,
+      tokenAddr,
+      ENTRY_FEE,
+      _defaultCurve(),
+      address(tr),
+      address(p),
+      address(this),
+      PROTOCOL_FEE_BPS,
+      address(0)
     );
     vm.prank(address(mf));
     tr.setTempl(address(t));
     vm.prank(address(mf));
-    tr.setFeeSplit(3000, 3000, 3000);
+    tr.setMemberPool(address(p));
+    vm.prank(address(mf));
+    p.setTempl(address(t));
+    vm.prank(address(mf));
+    p.setTreasury(address(tr));
+    // Split config lives on Templ; address(this) is the temp gov.
+    t.setFeeSplit(3000, 3000, 3000);
+    t.setReferralShareBps(2500);
   }
 
   function setUp() public {
@@ -115,9 +135,9 @@ contract JoinWithNativeTest is Test {
     uint256 balanceBefore = user1.balance;
 
     vm.prank(user1);
-    router.joinWithNative{
-      value: ENTRY_FEE + 0.5 ether
-    }(address(templ), user1, address(0));
+    router.joinWithNative{ value: ENTRY_FEE + 0.5 ether }(
+      address(templ), user1, address(0)
+    );
 
     assertTrue(templ.isMember(user1));
     assertEq(user1.balance, balanceBefore - ENTRY_FEE);
@@ -150,17 +170,17 @@ contract JoinWithNativeTest is Test {
   function test_joinWithNative_revertsIfNotWrappedNative() public {
     vm.prank(user1);
     vm.expectRevert(JoinWithNative.TokenNotWrappedNative.selector);
-    router.joinWithNative{
-      value: ENTRY_FEE
-    }(address(otherTempl), user1, address(0));
+    router.joinWithNative{ value: ENTRY_FEE }(
+      address(otherTempl), user1, address(0)
+    );
   }
 
   function test_joinWithNative_revertsIfInsufficientValue() public {
     vm.prank(user1);
     vm.expectRevert(JoinWithNative.InsufficientValue.selector);
-    router.joinWithNative{
-      value: ENTRY_FEE - 1
-    }(address(templ), user1, address(0));
+    router.joinWithNative{ value: ENTRY_FEE - 1 }(
+      address(templ), user1, address(0)
+    );
   }
 
   function test_joinWithNative_revertsIfRefundFails() public {
@@ -168,9 +188,9 @@ contract JoinWithNativeTest is Test {
     vm.deal(address(rejector), 10 ether);
 
     vm.expectRevert(JoinWithNative.RefundFailed.selector);
-    rejector.joinWithNative{
-      value: ENTRY_FEE + 0.5 ether
-    }(address(templ), address(rejector));
+    rejector.joinWithNative{ value: ENTRY_FEE + 0.5 ether }(
+      address(templ), address(rejector)
+    );
   }
 
   function test_joinWithNative_revertsIfAlreadyMember() public {
@@ -180,9 +200,9 @@ contract JoinWithNativeTest is Test {
     uint256 currentFee = templ.entryFee();
     vm.prank(user1);
     vm.expectRevert(ITempl.AlreadyMember.selector);
-    router.joinWithNative{
-      value: currentFee
-    }(address(templ), user1, address(0));
+    router.joinWithNative{ value: currentFee }(
+      address(templ), user1, address(0)
+    );
   }
 
   // ============ Fuzz ============
@@ -193,27 +213,36 @@ contract JoinWithNativeTest is Test {
     _entryFee = bound(_entryFee, 100, 100 ether);
 
     MockFactory fuzzMf = new MockFactory(protocolRecipient);
-    Treasury fuzzTreasury = fuzzMf.deployTreasury(
-      address(weth), PROTOCOL_FEE_BPS, address(0), 2500
-    );
+    (Treasury fuzzTreasury, MemberPool fuzzPool) =
+      fuzzMf.deployTreasuryAndPool(address(weth));
     Templ fuzzTempl = new Templ(
       priest,
       address(weth),
       _entryFee,
       _defaultCurve(),
       address(fuzzTreasury),
-      address(this)
+      address(fuzzPool),
+      address(this),
+      PROTOCOL_FEE_BPS,
+      address(0)
     );
     vm.prank(address(fuzzMf));
     fuzzTreasury.setTempl(address(fuzzTempl));
     vm.prank(address(fuzzMf));
-    fuzzTreasury.setFeeSplit(3000, 3000, 3000);
+    fuzzTreasury.setMemberPool(address(fuzzPool));
+    vm.prank(address(fuzzMf));
+    fuzzPool.setTempl(address(fuzzTempl));
+    vm.prank(address(fuzzMf));
+    fuzzPool.setTreasury(address(fuzzTreasury));
+    // Split config lives on Templ; address(this) is the temp gov.
+    fuzzTempl.setFeeSplit(3000, 3000, 3000);
+    fuzzTempl.setReferralShareBps(2500);
 
     vm.deal(user1, _entryFee);
     vm.prank(user1);
-    router.joinWithNative{
-      value: _entryFee
-    }(address(fuzzTempl), user1, address(0));
+    router.joinWithNative{ value: _entryFee }(
+      address(fuzzTempl), user1, address(0)
+    );
 
     assertTrue(fuzzTempl.isMember(user1));
   }
@@ -227,9 +256,9 @@ contract JoinWithNativeTest is Test {
     uint256 balanceBefore = user1.balance;
 
     vm.prank(user1);
-    router.joinWithNative{
-      value: ENTRY_FEE + _excess
-    }(address(templ), user1, address(0));
+    router.joinWithNative{ value: ENTRY_FEE + _excess }(
+      address(templ), user1, address(0)
+    );
 
     assertEq(user1.balance, balanceBefore - ENTRY_FEE);
   }
@@ -246,9 +275,9 @@ contract JoinWithNativeTest is Test {
     uint256 balanceBefore = user1.balance;
 
     vm.prank(user1);
-    router.joinWithNative{
-      value: reportedFee
-    }(address(mock), user1, address(0));
+    router.joinWithNative{ value: reportedFee }(
+      address(mock), user1, address(0)
+    );
 
     // User only pays the actual fee; leftover WETH is unwrapped and refunded
     assertEq(user1.balance, balanceBefore - actualFee);
@@ -267,9 +296,9 @@ contract JoinWithNativeTest is Test {
     uint256 balanceBefore = user1.balance;
 
     vm.prank(user1);
-    router.joinWithNative{
-      value: reportedFee + overpayment
-    }(address(mock), user1, address(0));
+    router.joinWithNative{ value: reportedFee + overpayment }(
+      address(mock), user1, address(0)
+    );
 
     // User pays only the actual fee; both WETH leftover and ETH overpayment refunded
     assertEq(user1.balance, balanceBefore - actualFee);

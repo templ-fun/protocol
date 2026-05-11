@@ -53,7 +53,8 @@ interface IGovernance {
     address[] targets,
     uint256[] values,
     bytes[] calldatas,
-    string description
+    string description,
+    bool quorumExempt
   );
 
   /// @notice Emitted when a member votes (OZ-aligned: 0=Against, 1=For, 2=Abstain)
@@ -118,6 +119,10 @@ interface IGovernance {
   // ============ Constants ============
 
   /// @notice Upper bound for proposalFeeBps (100% of entry fee)
+  /// @dev SCREAMING_SNAKE_CASE matches the `public constant` declaration on
+  ///      Governance.sol, which is the Solidity-style-guide form for
+  ///      constants. The lint exemption mirrors that convention.
+  // forge-lint: disable-next-line(mixed-case-function)
   function MAX_PROPOSAL_FEE_BPS() external pure returns (uint256);
 
   // ============ Views ============

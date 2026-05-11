@@ -10,9 +10,9 @@ Crypto communities need spaces where members can organise, govern, and build tru
 
 [`Templ.sol`](src/Templ.sol) is the core membership contract. The person who creates a Templ becomes the **priest** - the first member, who joins for free. Everyone after that [pays an entry fee that goes up](src/Templ.sol) with each new member, following a configurable curve (see [`EntryFeeCurve.sol`](src/libraries/EntryFeeCurve.sol)). Think of it like an early-bird discount: the earlier you join, the less you pay.
 
-When someone joins, the fee is split four ways: burn, treasury, member pool, and protocol. Existing members earn a share of the member pool automatically - no staking or locking required, just claim whenever you want. If someone was referred, the referrer gets a cut of the member pool before it's distributed. Governance can dissolve the treasury (split it equally among all members) or sweep rounding dust left from division. See [`Treasury.sol`](src/Treasury.sol) for the implementation.
+When someone joins, the fee is split four ways: burn, treasury, member pool, and protocol. The [`Templ`](src/Templ.sol) splitter pays each slice directly to its destination - the burn address, [`Treasury`](src/Treasury.sol), [`MemberPool`](src/MemberPool.sol), and the protocol fee recipient - in one transaction. Existing members earn a share of the member pool automatically - no staking or locking required, just claim whenever you want. If someone was referred, the referrer gets a cut of the member pool before it's distributed. Governance can dissolve the treasury, which moves the entire treasury balance into the MemberPool to be split among members on the next join.
 
-Templs are created through [`Factory.sol`](src/Factory.sol), which deploys a `Templ` + `Treasury` + `Governance` triplet from explicit caller-provided parameters - the Factory does not substitute defaults for any field, so the UI / SDK is responsible for sensible values. On chains with a native token (ETH, MATIC, etc.), [`JoinWithNative.sol`](src/utils/JoinWithNative.sol) wraps and joins in a single transaction. Governance can pause joins at any time.
+Templs are created through [`Factory.sol`](src/Factory.sol), which deploys a `Templ` + `Treasury` + `MemberPool` + `Governance` quad from explicit caller-provided parameters - the Factory does not substitute defaults for any field, so the UI / SDK is responsible for sensible values. On chains with a native token (ETH, MATIC, etc.), [`JoinWithNative.sol`](src/utils/JoinWithNative.sol) wraps and joins in a single transaction. Governance can pause joins at any time.
 
 Thanks to Templ's support for ERC-2612 and Permit2 Witness, there are never lingering token approvals. Templ supports four ways to join:
 
@@ -31,9 +31,10 @@ All contracts are non-upgradeable. No proxies, no delegatecall, no initializer p
 
 | Contract | Role |
 | --- | --- |
-| [`Factory`](src/Factory.sol) | Deploys Templ + Treasury + Governance triplets. Acts as temporary governance during deployment, then hands off control. |
-| [`Templ`](src/Templ.sol) | Membership and entry fee logic. Holds no funds - all tokens flow through to Treasury. |
-| [`Treasury`](src/Treasury.sol) | Receives join fees, splits them, tracks member pool balances, handles claims and dissolution. |
+| [`Factory`](src/Factory.sol) | Deploys Templ + Treasury + MemberPool + Governance per templ. Acts as temporary governance during deployment, then hands off control. |
+| [`Templ`](src/Templ.sol) | Membership and entry fee splitter. On every paid join, fans the burn / treasury / member-pool / protocol slices out to their destinations atomically. Holds no funds. |
+| [`Treasury`](src/Treasury.sol) | Programmable vault for the treasury slice of every join. Custodies any asset (ERC-20, ERC-721, native ETH). Governance can forward any portion via `execute(target, value, data)` or dissolve the entire balance into the MemberPool. |
+| [`MemberPool`](src/MemberPool.sol) | Holds the member-claimable share of every paid join. No governance-callable function; the only TOKEN outflow is `claimRewards`, which always pays the member. |
 | [`Governance`](src/governance/Governance.sol) | Shared proposal/voting logic. Extended by Democracy and Council. |
 | [`Democracy`](src/governance/Democracy.sol) | All members vote. One person, one vote. |
 | [`Council`](src/governance/Council.sol) | Only appointed council members vote. Quorum is based on council size. |
@@ -73,10 +74,9 @@ Through proposals, governance controls the economic and operational rules of a T
 
 - Change the base entry fee
 - Adjust the fee split between burn, treasury, and member pool
-- Withdraw or dissolve the treasury
+- Forward treasury assets via `execute` or dissolve the balance into the MemberPool
 - Change the burn address and referral share
 - Pause and unpause joins
-- Sweep rounding dust from the member pool
 - Upgrade the governance contract itself (e.g. switch from Council to Democracy)
 - Adjust voting rules: quorum, approval threshold, execution delay, voting period, immediate execution, and proposal fee
 - In a Council, add or remove council members
@@ -178,7 +178,7 @@ Referring a new member pays the referrer a direct cut (typical: 25% of the membe
 
 ### Treasury
 
-30% goes to a governance-controlled treasury. Governance can withdraw it, dissolve it (split equally among members), or let it grow.
+30% goes to a governance-controlled treasury. Governance can forward it via `execute` (any asset, any recipient), dissolve it into the MemberPool (split equally among members on the next join), or let it grow.
 
 ### Protocol
 
@@ -193,7 +193,7 @@ No single person - including the priest - can drain funds or take control unilat
 - **Drain funds.** The priest can only create dissolution proposals, which distribute funds *equally* to all members. Members vote to approve or block. No funds leave the system.
 - **Change governance.** Only a successful proposal can replace the governance contract.
 - **Change fees or rules.** Entry fee, fee splits, burn address, pause state - all require a governance vote.
-- **Remove members or block claims.** There's no member removal function. Members claim rewards directly from the Treasury.
+- **Remove members or block claims.** There's no member removal function. Members claim rewards directly from the MemberPool, which has no governance-callable function and no withdraw - the only TOKEN outflow is `claimRewards` paying the member.
 
 The priest can transfer the priest role to another member and create emergency dissolution proposals. That's it.
 
@@ -209,7 +209,7 @@ Governance parameters are snapshotted when each proposal is created. If a parame
 
 ### Member Pool Is Protected
 
-Treasury withdrawals can only touch the treasury balance, never the member pool. The member pool is only accessible through individual reward claims. Dissolution distributes funds equally to all members via the member pool.
+Member rewards live on a separate `MemberPool` contract, not the Treasury. The MemberPool has no governance-callable function and no withdraw - the only TOKEN outflow is `claimRewards`, which always pays the member. The address boundary is the safety guarantee. Dissolution moves the entire treasury balance into the MemberPool, where it is folded into the next per-member distribution.
 
 ### Protocol Fee Is Fixed
 
@@ -275,6 +275,6 @@ This applies to any action where the cost depends on the entry fee: joining, pro
 
 ## Token Compatibility
 
-All four join methods measure the actual Treasury balance delta (`balanceOf` before/after the transfer) and compare it against the expected entry fee. If the delivered amount differs from the expected fee, the transaction reverts with `FeeTokenMismatch`. This rejects **fee-on-transfer tokens** and **rebasing tokens** at the join gate - no accounting drift, no partial deliveries, no shortfalls.
+All four join methods measure the actual `Templ` balance delta (`balanceOf` before/after the transfer) and compare it against the expected entry fee. If the delivered amount differs from the expected fee, the transaction reverts with `FeeTokenMismatch`. This rejects **fee-on-transfer tokens** and **rebasing tokens** at the join gate - no accounting drift, no partial deliveries, no shortfalls.
 
 `SafeTransferLib` (Solady) handles missing return values and reverts on failure.

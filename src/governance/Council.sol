@@ -6,7 +6,6 @@ import { Governance } from "./Governance.sol";
 /// @title Council
 /// @notice Any templ member can propose standard proposals; only the priest or
 ///         council members can propose dissolution. Only council members vote.
-// NOTE: Council access control model tracked in #166.
 contract Council is Governance {
   // ============ State ============
 
@@ -21,7 +20,11 @@ contract Council is Governance {
 
   // ============ Events ============
 
-  event CouncilInitialized(address indexed templ, uint256 councilSize);
+  /// @notice Emitted once at construction with the full genesis roster.
+  ///         Indexers backfill same-block events on dynamically registered
+  ///         contracts, so this fires before `Templ.setGovernance` triggers
+  ///         registration and is still captured.
+  event CouncilInitialized(address indexed templ, address[] members);
   event CouncilMemberAdded(address indexed templ, address indexed member);
   event CouncilMemberRemoved(address indexed templ, address indexed member);
 
@@ -64,12 +67,8 @@ contract Council is Governance {
       isCouncilMember[_council[i]] = true;
     }
     councilSize = _council.length;
-  }
 
-  /// @dev Initial council size isn't captured by CouncilMemberAdded (constructor events
-  ///      fire before the indexer registers this contract), so emit it explicitly
-  function _afterEmitConfig() internal override {
-    emit CouncilInitialized(address(TEMPL), councilSize);
+    emit CouncilInitialized(_templ, _council);
   }
 
   // ============ Council Management (via proposals targeting this contract) ============
@@ -129,7 +128,6 @@ contract Council is Governance {
   /// @dev Council membership is checked here; Governance._vote additionally
   ///      requires templ membership via the snapshot check, so a council member
   ///      who is not a templ member cannot vote.
-  // NOTE: Council voter eligibility tracked in #166.
   function _canVote(
     address account
   ) internal view override returns (bool) {
@@ -147,7 +145,6 @@ contract Council is Governance {
   /// @dev Snapshot council size (not identity set) at proposal creation.
   ///      Quorum denominator is fixed, but individual membership changes during
   ///      voting affect eligibility without changing the quorum denominator.
-  // NOTE: Council identity snapshotting tracked in #177.
   function _afterProposalCreated(
     uint256 proposalId
   ) internal override {

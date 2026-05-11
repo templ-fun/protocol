@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { CouncilDeployer } from "../../src/CouncilDeployer.sol";
+import { DemocracyDeployer } from "../../src/DemocracyDeployer.sol";
+import { GovernanceDeployer } from "../../src/GovernanceDeployer.sol";
+import { MemberPool } from "../../src/MemberPool.sol";
 import { Templ } from "../../src/Templ.sol";
 import { Treasury } from "../../src/Treasury.sol";
 import { Council } from "../../src/governance/Council.sol";
@@ -9,7 +13,7 @@ import { ITempl } from "../../src/interfaces/ITempl.sol";
 import { EntryFeeCurve } from "../../src/libraries/EntryFeeCurve.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockFactory } from "../mocks/MockFactory.sol";
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 
 /// @dev Tests only Council-specific behavior.
 ///      Shared Governance logic is covered in Democracy.t.sol.
@@ -40,20 +44,31 @@ contract CouncilTest is Test {
     token = new MockERC20();
 
     mockFactory = new MockFactory(protocolRecipient);
-    treasury =
-      mockFactory.deployTreasury(address(token), 1000, address(0), 2500);
+    MemberPool pool;
+    (treasury, pool) = mockFactory.deployTreasuryAndPool(address(token));
     templ = new Templ(
       priest,
       address(token),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(treasury),
-      address(this)
+      address(pool),
+      address(this),
+      1000,
+      address(0)
     );
     vm.prank(address(mockFactory));
     treasury.setTempl(address(templ));
     vm.prank(address(mockFactory));
-    treasury.setFeeSplit(3000, 3000, 3000);
+    treasury.setMemberPool(address(pool));
+    vm.prank(address(mockFactory));
+    pool.setTempl(address(templ));
+    vm.prank(address(mockFactory));
+    pool.setTreasury(address(treasury));
+    // Split config lives on Templ; address(this) is the temp governance
+    // until the Council is deployed and wired below.
+    templ.setFeeSplit(3000, 3000, 3000);
+    templ.setReferralShareBps(2500);
 
     _joinMember(councilA);
     _joinMember(councilB);
@@ -160,6 +175,119 @@ contract CouncilTest is Test {
       0,
       dups
     );
+  }
+
+  /// @dev The genesis roster is carried in a single `CouncilInitialized` event
+  ///      with the full member array. Envio backfills same-block events on
+  ///      contracts dynamically registered via `Templ.GovernanceUpdated`, so
+  ///      this constructor-time event is captured by the indexer and replayed
+  ///      as one `CouncilMember` row per member.
+  function test_constructor_emitsCouncilInitializedWithMembers() public {
+    address[] memory council = new address[](3);
+    council[0] = councilA;
+    council[1] = councilB;
+    council[2] = councilC;
+
+    vm.recordLogs();
+
+    Council fresh = new Council(
+      address(templ),
+      APPROVAL_THRESHOLD_BPS,
+      QUORUM_BPS,
+      EXECUTION_DELAY,
+      VOTING_PERIOD,
+      IMMEDIATE_EXECUTION_BPS,
+      0,
+      council
+    );
+
+    _assertCouncilInitialized(
+      vm.getRecordedLogs(), address(fresh), address(templ), council
+    );
+  }
+
+  /// @dev Same property as the constructor test but routed through the
+  ///      `CouncilDeployer.deployFor` switch path, so the deploy-path Council
+  ///      is observationally identical to a direct `new Council(...)`.
+  function test_deployFor_emitsCouncilInitializedWithMembers() public {
+    // Stand up a deployer harness that treats this test contract as both the
+    // Factory (for isTempl) and the deployer-EOA seed. Mirrors SwitchGovernanceTest.
+    CouncilDeployer councilDeployer = new CouncilDeployer(address(this));
+    DemocracyDeployer democracyDeployer = new DemocracyDeployer(address(this));
+    GovernanceDeployer govDeployer = new GovernanceDeployer(
+      address(democracyDeployer), address(councilDeployer), address(this)
+    );
+    councilDeployer.setGovernanceDeployer(address(govDeployer));
+    democracyDeployer.setGovernanceDeployer(address(govDeployer));
+    govDeployer.setFactory(address(this));
+
+    address[] memory council = new address[](3);
+    council[0] = councilA;
+    council[1] = councilB;
+    council[2] = councilC;
+
+    // Caller must be the templ's current governance. setUp's `gov` is it.
+    vm.recordLogs();
+
+    vm.prank(address(gov));
+    address fresh = councilDeployer.deployFor(
+      address(templ),
+      APPROVAL_THRESHOLD_BPS,
+      QUORUM_BPS,
+      EXECUTION_DELAY,
+      VOTING_PERIOD,
+      IMMEDIATE_EXECUTION_BPS,
+      0,
+      council
+    );
+
+    _assertCouncilInitialized(
+      vm.getRecordedLogs(), fresh, address(templ), council
+    );
+  }
+
+  /// @dev Required by CouncilDeployer.deployFor for the isTempl guard. The
+  ///      test contract poses as the Factory in this harness.
+  function isTempl(
+    address what
+  ) external view returns (bool) {
+    return what == address(templ);
+  }
+
+  /// @dev Walks the recorded log entries emitted by `gov_` and asserts exactly
+  ///      one `CouncilInitialized(templ_, expected)` event with the full
+  ///      member array decoded from event data. Logs from other contracts
+  ///      (Templ, deployers) are ignored.
+  function _assertCouncilInitialized(
+    Vm.Log[] memory entries,
+    address gov_,
+    address templ_,
+    address[] memory expected
+  ) internal pure {
+    bytes32 sigInit = keccak256("CouncilInitialized(address,address[])");
+
+    uint256 initCount;
+    address[] memory members;
+    for (uint256 i; i < entries.length; ++i) {
+      Vm.Log memory e = entries[i];
+      if (e.emitter != gov_) continue;
+      if (e.topics[0] != sigInit) continue;
+      ++initCount;
+      assertEq(
+        address(uint160(uint256(e.topics[1]))),
+        templ_,
+        "CouncilInitialized: wrong templ"
+      );
+      members = abi.decode(e.data, (address[]));
+    }
+
+    assertEq(initCount, 1, "CouncilInitialized: not emitted exactly once");
+    assertEq(
+      members.length, expected.length, "CouncilInitialized: wrong member count"
+    );
+    for (uint256 i; i < expected.length; ++i) {
+      assertEq(members[i], expected[i], "CouncilInitialized: wrong member");
+    }
   }
 
   // ============ Propose: any member can propose ============
@@ -372,7 +500,7 @@ contract CouncilTest is Test {
   // ============ Quorum-Exempt Dissolution ============
 
   function test_proposeDissolution_councilMemberCanPropose() public {
-    uint256 treasuryBefore = treasury.treasuryBalance();
+    uint256 treasuryBefore = token.balanceOf(address(treasury));
     assertGt(treasuryBefore, 0);
 
     vm.prank(councilA);
@@ -386,7 +514,7 @@ contract CouncilTest is Test {
     // Still needs voting period to end and execution delay.
     vm.warp(block.timestamp + VOTING_PERIOD);
     gov.execute(id);
-    assertEq(treasury.treasuryBalance(), 0);
+    assertEq(token.balanceOf(address(treasury)), 0);
   }
 
   function test_proposeDissolution_priestCanPropose() public {

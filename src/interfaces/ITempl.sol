@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { IExecutable } from "./IExecutable.sol";
+import { IMemberPool } from "./IMemberPool.sol";
 import { ITreasury } from "./ITreasury.sol";
 import { ISignatureTransfer } from "permit2/interfaces/ISignatureTransfer.sol";
 
 /// @title ITempl
 /// @notice Interface for Templ membership contracts
-interface ITempl {
+/// @dev The programmable-vault surface (`execute`, `onERC721Received`, the
+///      `Executed` event, `ExecuteFailed`/`NotGovernance` errors, and native
+///      ETH `receive`) is inherited from `IExecutable`. Templ's runtime ABI
+///      includes those entries via inheritance; Solidity tests reach the
+///      selectors through `IExecutable`.
+interface ITempl is IExecutable {
   // ============ Structs ============
 
   /// @param id Permanent member ID (0 = not a member)
@@ -38,9 +45,13 @@ interface ITempl {
     uint256 timestamp
   );
 
-  event EntryFeeUpdated(uint256 newEntryFee);
+  event EntryFeeUpdated(address indexed templ, uint256 newEntryFee);
 
-  event GovernanceUpdated(address indexed governance);
+  event BaseEntryFeeUpdated(address indexed templ, uint256 baseEntryFee);
+
+  event GovernanceUpdated(
+    address indexed oldGovernance, address indexed newGovernance
+  );
 
   event PriestTransferred(
     address indexed previousPriest, address indexed newPriest
@@ -50,16 +61,78 @@ interface ITempl {
 
   event MetadataUpdated(string name, string description, string logoLink);
 
+  /// @notice Emitted whenever the burn / treasury / member-pool BPS triple
+  ///         changes. Factory fires this once after TemplCreated so indexers
+  ///         capture the genesis values; governance can update later.
+  /// @param templ The Templ contract that emitted this (always address(this))
+  /// @param burnBps New burn share in basis points
+  /// @param treasuryBps New treasury share in basis points
+  /// @param memberPoolBps New member-pool share in basis points
+  event FeeSplitUpdated(
+    address indexed templ,
+    uint256 burnBps,
+    uint256 treasuryBps,
+    uint256 memberPoolBps
+  );
+
+  /// @notice Emitted whenever the burn destination changes. Factory fires the
+  ///         resolved value (DEAD when caller passed zero) once after
+  ///         TemplCreated; governance can override later.
+  event BurnAddressUpdated(address indexed templ, address indexed burnAddress);
+
+  /// @notice Emitted whenever the referral cut of the member-pool slice
+  ///         changes. Factory fires the genesis value once; governance can
+  ///         update later.
+  event ReferralShareBpsUpdated(address indexed templ, uint256 bps);
+
+  /// @notice Emitted on every paid join after the fee has been split and
+  ///         forwarded to its destinations.
+  /// @param templ The Templ contract that emitted this (always address(this))
+  /// @param totalFee Gross fee delivered to Templ for this join
+  /// @param burnAmount Tokens forwarded to the burn address
+  /// @param treasuryAmount Tokens forwarded to Treasury
+  /// @param memberPoolAmount Member-pool slice before referral carve-out
+  /// @param protocolAmount Tokens forwarded to the protocol fee recipient
+  /// @param referral Referral target (zero if none paid)
+  /// @param referralAmount Referral cut taken from memberPoolAmount
+  event FeesDistributed(
+    address indexed templ,
+    uint256 totalFee,
+    uint256 burnAmount,
+    uint256 treasuryAmount,
+    uint256 memberPoolAmount,
+    uint256 protocolAmount,
+    address referral,
+    uint256 referralAmount
+  );
+
+  /// @notice Emitted when a referral receives their cut of the member-pool slice.
+  /// @param templ The Templ contract that emitted this (always address(this))
+  /// @param referral Address that received the referral payout
+  /// @param member The new member whose join generated this reward
+  /// @param amount Tokens transferred to the referral
+  event ReferralRewardPaid(
+    address indexed templ,
+    address indexed referral,
+    address indexed member,
+    uint256 amount
+  );
+
   // ============ Errors ============
 
   error AlreadyMember();
   error NotMember();
   error NotPriest();
-  error NotGovernance();
   error RecipientIsRequired();
   error JoinsPaused();
   error WrongToken();
   error FeeTokenMismatch();
+  /// @notice Reverts when a setFeeSplit call would not sum to BPS
+  ///         (`burnBps + treasuryBps + memberPoolBps + PROTOCOL_BPS != 10_000`)
+  ///         or when `setReferralShareBps` exceeds 10_000.
+  error InvalidSplit();
+  /// @notice Reverts when `setBurnAddress` is called with the zero address.
+  error ZeroBurnAddress();
 
   // ============ Views ============
 
@@ -81,8 +154,32 @@ interface ITempl {
   /// @notice Address authorized to execute governance actions on this contract
   function governance() external view returns (address);
 
-  /// @notice Treasury contract that handles fee distribution
+  /// @notice Treasury contract that holds the treasury slice
   function TREASURY() external view returns (ITreasury);
+
+  /// @notice MemberPool contract that holds member rewards
+  function MEMBER_POOL() external view returns (IMemberPool);
+
+  /// @notice Protocol fee share in basis points (set once in constructor)
+  function PROTOCOL_BPS() external view returns (uint256);
+
+  /// @notice Burn share in basis points
+  function burnBps() external view returns (uint256);
+
+  /// @notice Treasury share in basis points
+  function treasuryBps() external view returns (uint256);
+
+  /// @notice Member pool share in basis points
+  function memberPoolBps() external view returns (uint256);
+
+  /// @notice Destination address for burned tokens
+  function burnAddress() external view returns (address);
+
+  /// @notice Referral's cut of the member pool in basis points
+  function referralShareBps() external view returns (uint256);
+
+  /// @notice Cumulative tokens forwarded to the burn address by `_splitAndForward`
+  function totalBurned() external view returns (uint256);
 
   /// @notice Total members including the priest (priest = 1, first paid join = 2, etc.)
   function memberCount() external view returns (uint64);
@@ -230,5 +327,29 @@ interface ITempl {
     string calldata name,
     string calldata description,
     string calldata logoLink
+  ) external;
+
+  /// @notice Update fee split (PROTOCOL_BPS is set once in constructor).
+  ///         The triple plus PROTOCOL_BPS must sum to BPS (10_000).
+  /// @param burnBpsValue New burn share in basis points
+  /// @param treasuryBpsValue New treasury share in basis points
+  /// @param memberPoolBpsValue New member pool share in basis points
+  function setFeeSplit(
+    uint256 burnBpsValue,
+    uint256 treasuryBpsValue,
+    uint256 memberPoolBpsValue
+  ) external;
+
+  /// @notice Update the token burn destination address. Reverts on the zero
+  ///         address; defaults are resolved in the Templ constructor.
+  /// @param burnAddressValue New burn address (must not be zero)
+  function setBurnAddress(
+    address burnAddressValue
+  ) external;
+
+  /// @notice Update the referral's share of the member pool.
+  /// @param bps New referral share in basis points (0 = no referral, 10000 = full pool)
+  function setReferralShareBps(
+    uint256 bps
   ) external;
 }

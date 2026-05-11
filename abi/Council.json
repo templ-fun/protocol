@@ -885,10 +885,10 @@
         "internalType": "address"
       },
       {
-        "name": "councilSize",
-        "type": "uint256",
+        "name": "members",
+        "type": "address[]",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "address[]"
       }
     ],
     "anonymous": false
@@ -1052,6 +1052,12 @@
         "type": "string",
         "indexed": false,
         "internalType": "string"
+      },
+      {
+        "name": "quorumExempt",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false

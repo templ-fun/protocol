@@ -4,7 +4,10 @@ pragma solidity ^0.8.24;
 import { Governance } from "./Governance.sol";
 
 /// @title Elders
-/// @notice Governance type where only founding members can vote.
+/// @notice Reference template for builders forking the contracts. Not part of
+///         templ.fun's default deployment options.
+///
+///         Governance type where only founding members can vote.
 ///         Any member can propose, but only members who joined within the
 ///         first `elderThreshold` slots have voting power. Quorum is
 ///         calculated against the elder count, not total membership.

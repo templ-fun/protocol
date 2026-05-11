@@ -1,0 +1,204 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_democracyDeployer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_councilDeployer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_deployerEoa",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "COUNCIL_DEPLOYER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract CouncilDeployer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "DEMOCRACY_DEPLOYER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract DemocracyDeployer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "DEPLOYER_EOA",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "deploy",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "govConfig",
+        "type": "tuple",
+        "internalType": "struct GovernanceConfig",
+        "components": [
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "enum GovMode"
+          },
+          {
+            "name": "approvalThresholdBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "quorumBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "votingPeriod",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "executionDelay",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "immediateExecutionBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "proposalFeeBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "council",
+            "type": "address[]",
+            "internalType": "address[]"
+          }
+        ]
+      },
+      {
+        "name": "approvalThresholdBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quorumBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingPeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "executionDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "immediateExecutionBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalFeeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "governance",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setFactory",
+    "inputs": [
+      {
+        "name": "_factory",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidCouncil",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  }
+]

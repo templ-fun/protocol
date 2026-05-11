@@ -1,78 +1,47 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { IExecutable } from "./IExecutable.sol";
+
 /// @title ITreasury
-/// @notice Handles entry fee distribution: burn, treasury, member pool, protocol, referral.
-///         Referral is carved from the member pool when a valid referrer exists.
-interface ITreasury {
+/// @notice Passive vault holding the treasury slice of every paid join.
+/// @dev Treasury keeps custody of its slice, the FACTORY/TOKEN immutables, the
+///      one-shot Templ / MemberPool wiring used at deploy, and the
+///      governance-only `dissolve` escape hatch that forwards the entire
+///      balance to MemberPool. The protocol's splitting rules live on Templ.
+///
+///      The programmable-vault surface (`execute`, `onERC721Received`, the
+///      `Executed` event, `ExecuteFailed`/`NotGovernance` errors, and native
+///      ETH `receive`) is inherited from `IExecutable`. Treasury's runtime ABI
+///      includes those entries via inheritance; Solidity tests reach the
+///      selectors through `IExecutable`.
+interface ITreasury is IExecutable {
   // ============ Events ============
 
-  event FeesDistributed(
-    address indexed templ,
-    uint256 fee,
-    uint256 burn,
-    uint256 treasury,
-    uint256 memberPool,
-    uint256 protocol,
-    address indexed referrer,
-    uint256 referral
-  );
+  /// @notice Emitted when governance sends the full Treasury balance to
+  ///         MemberPool. The pool re-measures and folds the delta on the
+  ///         next paid join.
+  event TreasuryDissolved(address indexed templ, uint256 amount);
 
-  event ReferralRewardPaid(
-    address indexed templ,
-    address indexed referrer,
-    address indexed member,
-    uint256 amount
-  );
-
-  event MemberRewardsClaimed(
-    address indexed templ, address indexed member, uint256 amount
-  );
-
-  event TreasuryWithdrawn(
-    address indexed templ, address indexed recipient, uint256 amount
-  );
-
-  event TreasuryDissolved(
-    address indexed templ,
-    uint256 amount,
-    uint256 perMember,
-    uint256 memberCount,
-    uint256 remainder
-  );
-
-  event FeeSplitUpdated(
-    address indexed templ,
-    uint256 burnBps,
-    uint256 treasuryBps,
-    uint256 memberPoolBps
-  );
-
-  event BurnAddressUpdated(address indexed templ, address indexed burnAddress);
-  event ReferralShareBpsUpdated(address indexed templ, uint256 bps);
-  event MemberPoolRemainderSwept(
-    address indexed templ, address indexed recipient, uint256 amount
-  );
   event TemplSet(address indexed templ);
+  event MemberPoolSet(address indexed memberPool);
 
   // ============ Errors ============
 
-  error NotTempl();
-  error NotGovernance();
-  error NotMember();
   error NotDeployer();
   error AlreadyInitialized();
-  error InvalidSplit();
-  error InvalidAddress();
-  error NoRewardsToClaim();
-  error InsufficientPoolBalance();
-  error InsufficientTreasuryBalance();
-  error AmountZero();
+  error NotInitialized();
+  /// @notice `setTempl` was called with the zero address.
+  error ZeroTempl();
+  /// @notice `setMemberPool` was called with the zero address.
+  error ZeroMemberPool();
+  /// @notice `dissolve()` reverts with this when there is nothing to forward.
+  error EmptyTreasury();
 
   // ============ Views ============
-
-  /// @notice The linked Templ membership contract
-  function templ() external view returns (address);
+  // SCREAMING_SNAKE_CASE marks "morally immutable" storage: TOKEN/FACTORY have
+  // no setter, TEMPL/MEMBER_POOL each have a one-shot initializer that reverts
+  // after first call. See Treasury.sol storage block for the full rationale.
 
   /// @notice ERC20 token used for all fee operations
   function TOKEN() external view returns (address);
@@ -80,59 +49,13 @@ interface ITreasury {
   /// @notice The Factory that deployed this Treasury
   function FACTORY() external view returns (address);
 
-  /// @notice Protocol fee share in basis points (set once in constructor)
-  function PROTOCOL_BPS() external view returns (uint256);
+  /// @notice The linked Templ membership contract
+  function TEMPL() external view returns (address);
 
-  /// @notice Burn share in basis points
-  function burnBps() external view returns (uint256);
+  /// @notice The linked MemberPool contract (where dissolve forwards funds)
+  function MEMBER_POOL() external view returns (address);
 
-  /// @notice Treasury share in basis points
-  function treasuryBps() external view returns (uint256);
-
-  /// @notice Member pool share in basis points
-  function memberPoolBps() external view returns (uint256);
-
-  /// @notice Destination address for burned tokens
-  function burnAddress() external view returns (address);
-
-  /// @notice Referral's cut of the member pool in basis points
-  function referralShareBps() external view returns (uint256);
-
-  /// @notice Computed treasury balance: token balance minus member pool.
-  ///         Not stored - derived from actual token balance each call.
-  function treasuryBalance() external view returns (uint256);
-
-  /// @notice Tracked member pool balance (claimable by members)
-  function memberPoolBalance() external view returns (uint256);
-
-  /// @notice Cumulative tokens sent to the burn address
-  function totalBurned() external view returns (uint256);
-
-  /// @notice Cumulative per-member reward counter used for snapshot accounting
-  function cumulativeMemberRewards() external view returns (uint256);
-
-  /// @notice Leftover wei from integer division in reward distribution
-  function memberRewardRemainder() external view returns (uint256);
-
-  /// @notice Snapshot of cumulativeMemberRewards at the time a member last claimed or joined
-  /// @param member Address to query
-  function rewardSnapshot(
-    address member
-  ) external view returns (uint256);
-
-  /// @notice Total rewards a member has claimed over their lifetime
-  /// @param member Address to query
-  function memberPoolClaims(
-    address member
-  ) external view returns (uint256);
-
-  /// @notice Returns the unclaimed reward balance for a member (0 if not a member)
-  /// @param member Address to query
-  function getClaimableRewards(
-    address member
-  ) external view returns (uint256);
-
-  // ============ Templ Actions ============
+  // ============ Init ============
 
   /// @notice One-time: connect to the Templ contract
   /// @param _templ Address of the Templ membership contract
@@ -140,62 +63,15 @@ interface ITreasury {
     address _templ
   ) external;
 
-  /// @notice Called by Templ on each paid join
-  /// @param fee Total entry fee to distribute
-  /// @param member Address of the new member
-  /// @param referral Referral address (address(0) if none)
-  /// @param existingMemberCount Members before this join (used for per-member reward math)
-  function onJoin(
-    uint256 fee,
-    address member,
-    address referral,
-    uint256 existingMemberCount
+  /// @notice One-time: connect to the MemberPool contract
+  /// @param _memberPool Address of the MemberPool contract
+  function setMemberPool(
+    address _memberPool
   ) external;
 
-  /// @notice Withdraw treasury funds
-  /// @param recipient Address to receive the withdrawn tokens
-  /// @param amount Token amount to withdraw
-  function withdraw(
-    address recipient,
-    uint256 amount
-  ) external;
+  // ============ Governance ============
 
-  /// @notice Distribute treasury into member pool
+  /// @notice Send the entire Treasury TOKEN balance to MemberPool. The pool's
+  ///         next paid join folds the delta into that round's distribution.
   function dissolve() external;
-
-  /// @notice Update fee split (PROTOCOL_BPS is set once in constructor)
-  /// @param _burnBps New burn share in basis points
-  /// @param _treasuryBps New treasury share in basis points
-  /// @param _memberPoolBps New member pool share in basis points
-  function setFeeSplit(
-    uint256 _burnBps,
-    uint256 _treasuryBps,
-    uint256 _memberPoolBps
-  ) external;
-
-  /// @notice Update the token burn destination address
-  /// @param _burnAddress New burn address (must not be zero)
-  function setBurnAddress(
-    address _burnAddress
-  ) external;
-
-  /// @notice Update the referral's share of the member pool
-  /// @param _bps New referral share in basis points (0 = no referral, 10000 = full pool)
-  function setReferralShareBps(
-    uint256 _bps
-  ) external;
-
-  /// @notice Send leftover integer-division dust to a recipient
-  /// @param recipient Address to receive the remainder tokens
-  function sweepRemainder(
-    address recipient
-  ) external;
-
-  // ============ Member Actions ============
-
-  /// @notice Claim accumulated member rewards for a given member
-  /// @param member The member whose rewards are claimed (tokens sent to this address)
-  function claimRewards(
-    address member
-  ) external;
 }

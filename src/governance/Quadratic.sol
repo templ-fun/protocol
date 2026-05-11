@@ -5,7 +5,10 @@ import { Governance } from "./Governance.sol";
 import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 
 /// @title Quadratic
-/// @notice All members can propose and vote (one member, one vote) - same as
+/// @notice Reference template for builders forking the contracts. Not part of
+///         templ.fun's default deployment options.
+///
+///         All members can propose and vote (one member, one vote) - same as
 ///         Democracy - but the quorum denominator is the square root of the
 ///         snapshotted member count instead of the raw count.
 ///

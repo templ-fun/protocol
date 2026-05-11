@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { MemberPool } from "../src/MemberPool.sol";
 import { Templ } from "../src/Templ.sol";
 import { Treasury } from "../src/Treasury.sol";
 import { ITempl } from "../src/interfaces/ITempl.sol";
@@ -44,12 +45,32 @@ contract TemplFoTTest is Test, Permit2Helper {
     uint256 entryFee
   ) internal returns (Templ t, Treasury tr) {
     MockFactory mf = new MockFactory(protocolRecipient);
-    tr = mf.deployTreasury(token, PROTOCOL_FEE_BPS, address(0), 2500);
-    t = new Templ(priest, token, entryFee, _staticCurve(), address(tr), priest);
+    MemberPool p;
+    (tr, p) = mf.deployTreasuryAndPool(token);
+    t = new Templ(
+      priest,
+      token,
+      entryFee,
+      _staticCurve(),
+      address(tr),
+      address(p),
+      priest,
+      PROTOCOL_FEE_BPS,
+      address(0)
+    );
     vm.prank(address(mf));
     tr.setTempl(address(t));
     vm.prank(address(mf));
-    tr.setFeeSplit(BURN_BPS, TREASURY_BPS, MEMBER_POOL_BPS);
+    tr.setMemberPool(address(p));
+    vm.prank(address(mf));
+    p.setTempl(address(t));
+    vm.prank(address(mf));
+    p.setTreasury(address(tr));
+    // Split config lives on Templ; priest doubles as governance.
+    vm.prank(priest);
+    t.setFeeSplit(BURN_BPS, TREASURY_BPS, MEMBER_POOL_BPS);
+    vm.prank(priest);
+    t.setReferralShareBps(2500);
   }
 
   function setUp() public {
@@ -72,8 +93,11 @@ contract TemplFoTTest is Test, Permit2Helper {
     vm.stopPrank();
   }
 
-  /// @dev Separate test because the witness path has two transfer hops
-  ///      (payer -> Templ -> Treasury), each taxed independently.
+  /// @dev Separate test because the witness path has two transfer hops:
+  ///      Permit2 first pulls payer -> Templ, then Templ fans out to the burn
+  ///      address, Treasury, MemberPool, and protocol fee recipient. Each hop
+  ///      is taxed independently by the FoT token, so the delivered amount at
+  ///      Templ is below the entry fee and the join must revert.
   function test_joinWithPermit2Witness_revertsWithFoTToken() public {
     uint256 payerPk = 0xCAFE;
     address payer = vm.addr(payerPk);

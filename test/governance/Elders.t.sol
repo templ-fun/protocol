@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import { MemberPool } from "../../src/MemberPool.sol";
 import { Templ } from "../../src/Templ.sol";
 import { Treasury } from "../../src/Treasury.sol";
 import { Elders } from "../../src/governance/Elders.sol";
@@ -45,19 +46,31 @@ contract EldersTest is Test {
     token = new MockERC20();
     mf = new MockFactory(protocolRecipient);
 
-    treasury = mf.deployTreasury(address(token), 1000, address(0), 2500);
+    MemberPool pool;
+    (treasury, pool) = mf.deployTreasuryAndPool(address(token));
     templ = new Templ(
       priest,
       address(token),
       ENTRY_FEE,
       EntryFeeCurve.exponentialWithTail(10_094, 248),
       address(treasury),
-      address(this)
+      address(pool),
+      address(this),
+      1000,
+      address(0)
     );
     vm.prank(address(mf));
     treasury.setTempl(address(templ));
     vm.prank(address(mf));
-    treasury.setFeeSplit(3000, 3000, 3000);
+    treasury.setMemberPool(address(pool));
+    vm.prank(address(mf));
+    pool.setTempl(address(templ));
+    vm.prank(address(mf));
+    pool.setTreasury(address(treasury));
+    // Split config lives on Templ; address(this) is the temp governance
+    // until the Elders gov is wired below.
+    templ.setFeeSplit(3000, 3000, 3000);
+    templ.setReferralShareBps(2500);
 
     _joinMember(elder1);
     _joinMember(elder2);

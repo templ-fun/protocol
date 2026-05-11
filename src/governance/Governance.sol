@@ -60,8 +60,11 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
   // enabling auto-verification on Etherscan/Sourcify after a single verified
   // deployment. Gas difference is negligible on L2s (~2100 gas cold SLOAD vs
   // 3 gas PUSH). No setter exists; value is effectively immutable.
+  // SCREAMING_SNAKE_CASE signals that intent; lint exemption scoped to the
+  // declaration below.
 
   /// @inheritdoc IGovernance
+  // forge-lint: disable-next-line(mixed-case-variable)
   ITempl public override TEMPL;
 
   // ============ Configurable Parameters ============
@@ -132,53 +135,20 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _immediateExecutionBps,
     uint256 _proposalFeeBps
   ) {
-    // Upper bounds on every bps field. Without these, a caller could pass
-    // values > 10_000 that are mathematically unreachable (threshold /
-    // quorum never met) and brick the templ. The Factory does not substitute
-    // defaults, so the contract must enforce its own bounds.
-    if (_approvalThresholdBps > BPS) revert InvalidQuorumConfig();
-    if (_quorumBps > BPS) revert InvalidQuorumConfig();
-    if (_immediateExecutionBps > BPS) revert InvalidQuorumConfig();
-
-    // Cross-field: immediate execution requires at least as many FOR votes
-    // as the normal approval threshold, otherwise a proposal could
-    // fast-track with fewer votes than it needs to pass normally.
-    if (_immediateExecutionBps < _approvalThresholdBps) {
-      revert InvalidQuorumConfig();
-    }
-
-    // Execution delay is unreachable when immediateExecutionBps is zero:
-    // any single FOR vote (including the proposer's auto-FOR) satisfies
-    // `forVotes * BPS / denominator >= 0`, firing the instant branch and
-    // skipping the delay check entirely. Reject the contradictory config.
-    // Edge case: when both immediateExecutionBps and approvalThresholdBps
-    // are 0, the instant path always fires and executionDelay is bypassed
-    // even if set to 0. The constructor rejects executionDelay > 0 with
-    // immediateExecutionBps == 0 below, but does not reject both being 0.
-    // NOTE: Minimum-value enforcement tracked in #179.
-    if (_executionDelay > 0 && _immediateExecutionBps == 0) {
-      revert InvalidQuorumConfig();
-    }
-
-    // Proposal fee has its own hard cap (capped at 100% of entry fee).
-    if (_proposalFeeBps > MAX_PROPOSAL_FEE_BPS) {
-      revert InvalidQuorumConfig();
-    }
-
-    // Voting period must be non-zero, otherwise every proposal expires the
-    // instant it is created and the only vote that can be recorded is the
-    // proposer's auto-FOR. That plus quorum = 0 would let any proposer
-    // single-handedly pass arbitrary proposals.
-    if (_votingPeriod == 0) revert InvalidQuorumConfig();
-
     TEMPL = ITempl(_templ);
     _governanceType = governanceType_;
-    approvalThresholdBps = _approvalThresholdBps;
-    quorumBps = _quorumBps;
-    executionDelay = _executionDelay;
-    votingPeriod = _votingPeriod;
-    immediateExecutionBps = _immediateExecutionBps;
-    proposalFeeBps = _proposalFeeBps;
+
+    // Order matters: each helper owns its field's bounds + any cross-field
+    // invariant that reads other fields. immediateExecutionBps must be set
+    // before approvalThresholdBps (the latter's check reads the former),
+    // and executionDelay last so its cross-field check sees the final
+    // immediateExecutionBps.
+    _setQuorumBps(_quorumBps);
+    _setVotingPeriod(_votingPeriod);
+    _setProposalFeeBps(_proposalFeeBps);
+    _setImmediateExecutionBps(_immediateExecutionBps);
+    _setApprovalThresholdBps(_approvalThresholdBps);
+    _setExecutionDelay(_executionDelay);
   }
 
   // ============ Receive ETH ============
@@ -187,7 +157,6 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
   ///      ETH returned by execute() calls that send less value than provided.
   ///      There is no sweep mechanism - ETH accumulates permanently unless a
   ///      proposal explicitly forwards it.
-  // NOTE: ETH sweep mechanism tracked in #182.
   receive() external payable { }
 
   // ============ Init ============
@@ -347,7 +316,6 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
   ///      signature, so accepting a separate proposer param would let anyone
   ///      create proposals in another member's name. For relayed proposals
   ///      where proposer != msg.sender, use proposeWithPermitWitness.
-  // NOTE: Proposal fee payment model tracked in #167.
   function proposeWithERC2612Permit(
     address[] calldata targets,
     uint256[] calldata values,
@@ -415,7 +383,8 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
       targets,
       values,
       calldatas,
-      description
+      description,
+      p.quorumExempt
     );
 
     // Auto-vote FOR if proposer is eligible to vote
@@ -470,7 +439,6 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     // Side effect: in Council mode, this also blocks council members who
     // are not templ members (memberId == 0) or who joined after proposal
     // creation, even though _canVote would pass them.
-    // NOTE: Council voter eligibility tracked in #166.
     if (!voted) {
       (uint64 memberId,) = TEMPL.members(voter);
       if (memberId == 0 || memberId > p.snapshotMemberCount) {
@@ -558,8 +526,7 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
 
     // Voting period must have ended OR instant quorum reached
     bool votingEnded = block.timestamp >= p.createdAt + p.snapshotVotingPeriod;
-    bool instant =
-      denominator > 0
+    bool instant = denominator > 0
       && p.forVotes * BPS / denominator >= p.snapshotImmediateExecutionBps;
     if (!votingEnded && !instant) revert TooEarly();
 
@@ -670,7 +637,8 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
       p.targets,
       p.values,
       p.calldatas,
-      description
+      description,
+      p.quorumExempt
     );
 
     // Auto-vote FOR if proposer is eligible
@@ -691,15 +659,21 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
   }
 
   // ============ Parameter Setters ============
+  //
+  // External setters are thin auth wrappers around per-field internal
+  // helpers. Each `_setX` helper owns the single source of truth for its
+  // field's validation and storage write. Event emission stays on the
+  // external setter so the constructor (which also calls the helpers) does
+  // not double-emit alongside emitConfig(); the indexer replays the
+  // genesis configuration from emitConfig() rather than from constructor
+  // events.
 
   /// @inheritdoc IGovernance
   function setApprovalThresholdBps(
     uint256 _bps
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
-    if (_bps > BPS) revert InvalidQuorumConfig();
-    if (_bps > immediateExecutionBps) revert InvalidQuorumConfig();
-    approvalThresholdBps = _bps;
+    _setApprovalThresholdBps(_bps);
     emit ApprovalThresholdUpdated(address(TEMPL), _bps);
   }
 
@@ -708,8 +682,7 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _bps
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
-    if (_bps > BPS) revert InvalidQuorumConfig();
-    quorumBps = _bps;
+    _setQuorumBps(_bps);
     emit QuorumUpdated(address(TEMPL), _bps);
   }
 
@@ -718,7 +691,7 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _seconds
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
-    executionDelay = _seconds;
+    _setExecutionDelay(_seconds);
     emit ExecutionDelayUpdated(address(TEMPL), _seconds);
   }
 
@@ -727,12 +700,7 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _seconds
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
-    // Must stay strictly positive. A zero voting period expires every
-    // future proposal the instant it is created, leaving only the
-    // proposer's auto-FOR vote in the tally - effectively letting any
-    // proposer pass arbitrary proposals solo.
-    if (_seconds == 0) revert InvalidQuorumConfig();
-    votingPeriod = _seconds;
+    _setVotingPeriod(_seconds);
     emit VotingPeriodUpdated(address(TEMPL), _seconds);
   }
 
@@ -741,9 +709,7 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _bps
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
-    if (_bps > BPS) revert InvalidQuorumConfig();
-    if (_bps < approvalThresholdBps) revert InvalidQuorumConfig();
-    immediateExecutionBps = _bps;
+    _setImmediateExecutionBps(_bps);
     emit ImmediateExecutionUpdated(address(TEMPL), _bps);
   }
 
@@ -752,9 +718,79 @@ abstract contract Governance is IGovernance, ReentrancyGuardTransient {
     uint256 _bps
   ) external override {
     if (msg.sender != address(this)) revert NotAuthorized();
+    _setProposalFeeBps(_bps);
+    emit ProposalFeeUpdated(address(TEMPL), _bps);
+  }
+
+  // ============ Internal Parameter Helpers ============
+
+  /// @dev Upper bound: an approval threshold above BPS is mathematically
+  ///      unreachable (FOR / (FOR + AGAINST) <= BPS) and would brick passage.
+  ///      Cross-field: must not exceed immediateExecutionBps, otherwise the
+  ///      instant-execution path fires at fewer votes than the normal pass
+  ///      threshold demands.
+  function _setApprovalThresholdBps(
+    uint256 _bps
+  ) internal {
+    if (_bps > BPS) revert InvalidQuorumConfig();
+    if (_bps > immediateExecutionBps) revert InvalidQuorumConfig();
+    approvalThresholdBps = _bps;
+  }
+
+  /// @dev Upper bound: a quorum above BPS demands more participation than
+  ///      the eligible set can provide, bricking every proposal.
+  function _setQuorumBps(
+    uint256 _bps
+  ) internal {
+    if (_bps > BPS) revert InvalidQuorumConfig();
+    quorumBps = _bps;
+  }
+
+  /// @dev Cross-field: a non-zero execution delay is meaningless when
+  ///      immediateExecutionBps is zero - any single FOR vote satisfies
+  ///      `forVotes * BPS / denominator >= 0`, firing the instant branch
+  ///      and skipping the delay check. Reject the contradictory config.
+  ///      Edge case: both immediateExecutionBps and approvalThresholdBps
+  ///      at 0 always fire the instant path and bypass executionDelay even
+  ///      at 0; this helper rejects executionDelay > 0 with
+  ///      immediateExecutionBps == 0 but does not reject both being 0.
+  function _setExecutionDelay(
+    uint256 _seconds
+  ) internal {
+    if (_seconds > 0 && immediateExecutionBps == 0) {
+      revert InvalidQuorumConfig();
+    }
+    executionDelay = _seconds;
+  }
+
+  /// @dev Voting period must stay strictly positive. A zero voting period
+  ///      expires every future proposal the instant it is created, leaving
+  ///      only the proposer's auto-FOR vote in the tally - effectively
+  ///      letting any proposer pass arbitrary proposals solo.
+  function _setVotingPeriod(
+    uint256 _seconds
+  ) internal {
+    if (_seconds == 0) revert InvalidQuorumConfig();
+    votingPeriod = _seconds;
+  }
+
+  /// @dev Upper bound: above BPS is unreachable. Cross-field: must be >=
+  ///      approvalThresholdBps so the instant path never fires below the
+  ///      normal pass threshold.
+  function _setImmediateExecutionBps(
+    uint256 _bps
+  ) internal {
+    if (_bps > BPS) revert InvalidQuorumConfig();
+    if (_bps < approvalThresholdBps) revert InvalidQuorumConfig();
+    immediateExecutionBps = _bps;
+  }
+
+  /// @dev Capped at 100% of entry fee.
+  function _setProposalFeeBps(
+    uint256 _bps
+  ) internal {
     if (_bps > MAX_PROPOSAL_FEE_BPS) revert InvalidQuorumConfig();
     proposalFeeBps = _bps;
-    emit ProposalFeeUpdated(address(TEMPL), _bps);
   }
 
   // ============ Internal ============

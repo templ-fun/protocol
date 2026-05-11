@@ -783,6 +783,12 @@
         "internalType": "address"
       },
       {
+        "name": "memberPool",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
         "name": "creator",
         "type": "address",
         "indexed": false,

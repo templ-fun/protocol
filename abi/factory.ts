@@ -92,6 +92,7 @@ export const FACTORY_ABI = [
       { name: "priest", type: "address", indexed: true },
       { name: "token", type: "address", indexed: true },
       { name: "treasury", type: "address", indexed: false },
+      { name: "memberPool", type: "address", indexed: false },
       { name: "creator", type: "address", indexed: false },
       { name: "baseEntryFee", type: "uint256", indexed: false },
       { name: "slug", type: "string", indexed: false },
@@ -176,6 +177,13 @@ export const FACTORY_ABI = [
     stateMutability: "view",
   },
   {
+    type: "function",
+    name: "GOV_DEPLOYER",
+    inputs: [],
+    outputs: [{ type: "address" }],
+    stateMutability: "view",
+  },
+  {
     type: "event",
     name: "OpenUpdated",
     inputs: [{ name: "isOpen", type: "bool", indexed: false }],
@@ -184,5 +192,20 @@ export const FACTORY_ABI = [
     type: "event",
     name: "ProtocolFeeRecipientUpdated",
     inputs: [{ name: "recipient", type: "address", indexed: true }],
+  },
+  {
+    type: "function",
+    name: "transferOwnership",
+    inputs: [{ name: "newOwner", type: "address" }],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "event",
+    name: "OwnershipTransferred",
+    inputs: [
+      { name: "oldOwner", type: "address", indexed: true },
+      { name: "newOwner", type: "address", indexed: true },
+    ],
   },
 ] as const;
