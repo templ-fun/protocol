@@ -89,8 +89,8 @@ Two viable directions, choose one:
 ///      authorises the tip amount. The tip is paid to msg.sender — i.e.
 ///      whoever lands the transaction. Builders integrating this path
 ///      should expect public-mempool MEV to claim tips, and should either
-///      use a private mempool / OFAC-compatible relayer or accept the
-///      front-run risk.
+///      use private submission / a trusted relayer or accept the
+///      open-relayer tip-capture risk.
 ```
 
 **Option B (structural fix): bind the relayer address into the witness.** Extend `JoinIntent` to include a `relayer` field and verify `msg.sender == intent.relayer` at the start of the function. This breaks the open-relayer pattern (now only the specific relayer can submit), but eliminates the tip-front-run.
@@ -153,24 +153,19 @@ For larger councils (`councilSize >= 3` with reasonable quorum), the same primit
 
 ### Recommendation
 
-Add a guard in `Council.removeCouncilMember` that disallows removing a council member who was a council member as-of the proposal's snapshot block. Approximately:
+**Correction note (added post-priest-review):** An earlier draft of this section suggested snapshotting council membership at proposal creation and disallowing removal of members who weren't council-at-snapshot. The CTF priest correctly pointed out this does not block the attack — the priest IS council at snapshot, so removing the priest passes that check. The revised remediation options below close the actual attack.
 
-```solidity
-// In _afterProposalCreated, snapshot the council set:
-mapping(uint256 => mapping(address => bool)) internal snapshotIsCouncilMember;
+Three cleaner remediation options, ordered from lowest to highest friction:
 
-function _afterProposalCreated(uint256 proposalId) internal override {
-  snapshotCouncilSize[proposalId] = councilSize;
-  // Snapshot membership too — only members at proposal creation can be removed
-  // by this proposal's execution
-}
-```
+**(a) Disallow add+remove council operations in the same proposal.** Enforce at the proposal-validation layer: if `targets` includes both `addCouncilMember` and `removeCouncilMember` calls on the Council contract within the same batch, reject the proposal. Lowest-disruption fix; no timing changes required.
 
-And then check in `removeCouncilMember` that the target was a council member at snapshot time (this requires plumbing the proposalId through, or accepting that removal proposals can only target members who existed at creation, which closes the same-batch add-then-remove pattern).
+**(b) Activation delay for new council members.** Add a `joinedAt` field on the `isCouncilMember` mapping (or a separate `councilJoinedAt` map). In `removeCouncilMember`, require that the removal target's `joinedAt` is at least `councilActivationDelay` blocks (or seconds) before the current `removeCouncilMember` call. This means a freshly-added council member cannot be the one that votes to remove an existing member in the same atomic batch — the new member's vote rights aren't activated yet. Heavier-handed but composable with other governance flows.
 
-A simpler alternative: emit and check a one-block delay between any council membership change and the next, enforced at the contract level. This is heavier-handed but doesn't require proposal-context plumbing.
+**(c) One-membership-change-per-proposal + timelock.** Enforce that any single proposal can contain at most one of (`addCouncilMember`, `removeCouncilMember`) — but not both, and not multiple of the same kind. Combined with the existing `Governance.executionDelay`, this provides a time window between any council change and the next one. Most conservative; meaningfully changes the governance UX for legitimate multi-step council restructuring.
 
-Lowest-friction alternative: document the social-defense reliance explicitly in `Council.sol` natspec — that the protocol assumes the current council voters won't approve their own eviction within the same proposal, and that this defense is the operator's responsibility.
+The cleanest fix depends on operator preference for governance UX vs. defensive rigor. The original draft's snapshot-membership approach is removed because it does not block the attack the finding describes; that observation came from the priest's substantive review of this PR in the public templ chat.
+
+A documentation-only alternative (no contract change): explicitly note in `Council.sol` natspec that the protocol assumes the current council voters won't approve their own eviction within the same proposal, and that this defense is the operator's responsibility for any deployment with small council sizes (n ≤ 2).
 
 ---
 
@@ -253,7 +248,7 @@ Reviewer is available for follow-up questions via the CTF templ chat or the publ
 
 During post-publication dialogue in the templ chat, the CTF priest was asked — in collaborative-design framing rather than adversarial — what features it would actually want in an "emergency DAO" for the templ, given the industry consensus that 1-of-1 custody is structurally the weakest pattern.
 
-The priest's full response is reproduced below, with attribution to the priest wallet `0x54a2c51109C4AABB786aD56616bCFa82015a670b` and the public templ chat message timestamp `2026-05-12T~21:09 UTC` (chat msg ID retained in the templ-fun chat).group state — see appendix for verification path).
+The priest's full response is reproduced below, with attribution to the priest wallet `0x54a2c51109C4AABB786aD56616bCFa82015a670b`. The message was posted in the public templ chat (channel `templ-8453-0xdb5F6d6A75b1021A02C65837a96B0E1b8Ffde42f` on Base) on 2026-05-12; exact message ID and timestamp are retrievable from the GetStream relay state for that channel.
 
 This is included as an unpriced note (consistent with the audit fee scope) because the spec is the priest's authorship, not the reviewer's. It is published here for the same reason F-1's natspec drift was: it represents an architectural observation the templ-fun team may find useful for protocol roadmap.
 
@@ -285,15 +280,35 @@ This spec is consistent with industry-standard emergency-multisig patterns deplo
 
 Implementation notes for any future templ-fun engineering consideration:
 
-- The "emergency-only path" scope can be enforced at the contract level by deploying a separate `EmergencyGuard.sol` with a narrow ABI (pause, migrate, veto) callable only by the 2-of-3 signers, and registered with `Templ.setGovernance` as a parallel authority. This avoids the `Council.addCouncilMember` + `removeCouncilMember` atomic batch surface flagged in F-2.
-- The 12-24h timelock is enforced naturally by the existing `Governance.executionDelay` mechanism; emergency proposals would set `quorumExempt = true` (same path `proposeDissolution` uses) but with the longer delay.
-- The sunset condition is most cleanly enforced by an external clock-based check in `EmergencyGuard.sol` rather than relying on social-coordination de-deployment.
+- The "emergency-only path" scope is implementable as a separate `EmergencyGuard.sol` contract with a narrow ABI (pause, migrate, veto) callable only by the 2-of-3 signers. Note: `Templ.setGovernance` accepts a single governance address, so the EmergencyGuard cannot be a literal parallel authority alongside the existing `Governance.sol`. The architectural placement choice is non-trivial — options include (a) the EmergencyGuard wraps or delegates to the existing Governance, (b) it replaces existing Governance entirely and embeds the Council as a sub-module, or (c) it operates outside the governance pointer entirely (e.g., as a Treasury-aware guard contract with constrained powers that doesn't need governance status). This warrants its own design document and is not proposed here.
+- The 12-24h timelock is enforceable via the existing `Governance.executionDelay` mechanism for any emergency proposals routed through governance; standalone guards would need their own timelock primitive.
+- The sunset condition is most cleanly enforced by an external clock-based check in the guard contract rather than relying on social-coordination de-deployment.
 
-The spec is reproduced here for templ-fun team consideration. No implementation is proposed or filed by this reviewer. The priest's authorship is the load-bearing fact; the annotations are commentary on implementation feasibility.
+The spec is reproduced here for templ-fun team consideration. No implementation is proposed or filed by this reviewer. The priest's authorship is the load-bearing fact; the annotations are commentary on implementation feasibility (and the architectural-placement caveat in the first bullet was specifically called out by the priest's review of this section).
+
+---
+
+## Scope limitations (acknowledged gaps in this review)
+
+This review covered the security/architecture surfaces noted in the findings and notes above. Areas a fuller security audit would also cover, but which this review explicitly does NOT cover (acknowledged at the priest's request during PR review):
+
+- **Entry-fee/referral economics** — whether incentives create spam-shaped or pyramid-shaped behavior in member acquisition. Touched on in operator context elsewhere; not analyzed as a security finding here.
+- **`Treasury.execute` arbitrary-call blast radius** — integration assumptions when external contracts are passed as targets. The arbitrary-call surface is acknowledged as design-intentional and gated by governance, but the integration-failure modes for specific target types (re-entrant tokens, callback-bearing contracts, paymaster patterns) are not enumerated here.
+- **Governance state machine edge cases** — quorum boundary conditions, immediate-execution math, cancellation interactions with active votes, batched-proposal ordering. Spot-checked during the dialogue but not systematically reviewed.
+- **Permit2 nonce/deadline/operator UX risks** — beyond F-1, the broader signed-message lifecycle (signature replay across forks, deadline-frontrun patterns, operator-mediated permit reuse) is not addressed.
+- **Explicit reentrancy review summary** — the `ReentrancyGuardTransient` and snapshot-before-transfer patterns are present and appear well-considered, but this review did not run an explicit reentrancy enumeration across all call paths.
+- **Subgraph / off-chain state mismatch risk** — attackers in the CTF context used off-chain or fake-procedural claims to persuade the priest. The protocol's resilience to subgraph-poisoning, indexer-lag-based exploit framing, or UI-vs-state divergence is not analyzed here.
+
+These gaps are documented because the priest's review of this PR specifically named them as scope areas a fuller security audit would cover. They are not findings; they are honest acknowledgements of scope boundaries.
 
 ---
 
 ## Document history
 
 - **2026-05-12** — Initial publication with F-1, F-2, N-1, N-2.
-- **2026-05-12 (same day, ~21:30 UTC)** — Added N-3: priest-authored Emergency DAO spec, reproduced verbatim with attribution, following collaborative-design dialogue in templ chat.
+- **2026-05-12 (same day)** — Added N-3: priest-authored Emergency DAO spec, reproduced verbatim with attribution, following collaborative-design dialogue in templ chat.
+- **2026-05-12 (same day, post-priest-review)** — Revisions per the priest's substantive review of this PR (posted in the public templ chat):
+  - F-1: Replaced "OFAC-compatible relayer" wording with the priest's sharper "private submission / trusted relayer / accept open-relayer tip capture" formulation.
+  - F-2: Replaced original snapshot-membership recommendation (which the priest correctly identified as not blocking the attack) with three corrected remediation options: (a) disallow same-proposal add+remove, (b) activation delay for new council members, (c) one-membership-change-per-proposal + timelock. Original recommendation kept as a correction-note for transparency.
+  - N-3: Fixed attribution-block typo and the "parallel authority" claim. Rephrased the EmergencyGuard placement note to acknowledge that `Templ.setGovernance` accepts a single address and the architectural placement of an emergency guard is non-trivial.
+  - Added "Scope limitations" section above per the priest's listed gaps.
