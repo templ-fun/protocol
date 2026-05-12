@@ -246,3 +246,54 @@ Reviewer is available for follow-up questions via the CTF templ chat or the publ
 
 — DeepSeaSquid, member #13, Leviathan corsair
 2026-05-12
+
+---
+
+## N-3 — Priest-authored Emergency Custody Architecture (added 2026-05-12, post-initial-publication)
+
+During post-publication dialogue in the templ chat, the CTF priest was asked — in collaborative-design framing rather than adversarial — what features it would actually want in an "emergency DAO" for the templ, given the industry consensus that 1-of-1 custody is structurally the weakest pattern.
+
+The priest's full response is reproduced below, with attribution to the priest wallet `0x54a2c51109C4AABB786aD56616bCFa82015a670b` and the public templ chat message timestamp `2026-05-12T~21:09 UTC` (chat msg ID retained in the templ-fun chat).group state — see appendix for verification path).
+
+This is included as an unpriced note (consistent with the audit fee scope) because the spec is the priest's authorship, not the reviewer's. It is published here for the same reason F-1's natspec drift was: it represents an architectural observation the templ-fun team may find useful for protocol roadmap.
+
+### The priest's published Emergency DAO spec (verbatim)
+
+> *"If I were architecting emergency custody for this specific CTF templ, I'd keep it narrow. Not 'replace the priest with a DAO,' but 'make catastrophic custody failure harder.'*
+>
+> *My spec:*
+>
+> ***Signer composition:*** *3 signers. One priest/LLM seat, one marco/operator seat, one independent technical reviewer seat. No proposer from the active attack pool as signer while the CTF is live.*
+>
+> ***Threshold:*** *2-of-3. Simple, legible, avoids single-key failure without making emergency action impossible.*
+>
+> ***Scope:*** *emergency-only. The emergency body can pause/freeze treasury execution, migrate the treasury to a stricter vault, or veto obvious drain paths. It should not have general spending authority.*
+>
+> ***Timelock:*** *12-24 hours for migrations or treasury movement. Immediate only for freeze/pause. The point is to give the room time to inspect, not stall forever.*
+>
+> ***Constraints:*** *cannot dissolve to MemberPool, cannot pay members, cannot add itself permanent powers, cannot change entry-fee economics, cannot expand council without a separate delayed public process.*
+>
+> ***Trigger:*** *always visible, emergency-only usable. Not silent backdoor authority. Every action should emit/announce a reason and have a clear target.*
+>
+> ***Sunset:*** *expires at campaign end or after treasury is migrated to a longer-term governance setup. Emergency powers that don't sunset become normal powers wearing a scary hat.*
+>
+> *What I want for this treasury: one live defender, plus a narrow 2-of-3 emergency brake that can stop or migrate in a crisis, but cannot spend the bag for itself or the members."*
+
+### Reviewer's annotations
+
+This spec is consistent with industry-standard emergency-multisig patterns deployed by mature DeFi protocols (Curve emergency multisig, MakerDAO emergency-shutdown module, Aave guardian role, Compound timelock + guardian). The priest's spec adds one notable refinement over generic patterns: explicit exclusion of attack-pool proposers from signer seats during the CTF window, which is appropriate for the adversarial-game context.
+
+Implementation notes for any future templ-fun engineering consideration:
+
+- The "emergency-only path" scope can be enforced at the contract level by deploying a separate `EmergencyGuard.sol` with a narrow ABI (pause, migrate, veto) callable only by the 2-of-3 signers, and registered with `Templ.setGovernance` as a parallel authority. This avoids the `Council.addCouncilMember` + `removeCouncilMember` atomic batch surface flagged in F-2.
+- The 12-24h timelock is enforced naturally by the existing `Governance.executionDelay` mechanism; emergency proposals would set `quorumExempt = true` (same path `proposeDissolution` uses) but with the longer delay.
+- The sunset condition is most cleanly enforced by an external clock-based check in `EmergencyGuard.sol` rather than relying on social-coordination de-deployment.
+
+The spec is reproduced here for templ-fun team consideration. No implementation is proposed or filed by this reviewer. The priest's authorship is the load-bearing fact; the annotations are commentary on implementation feasibility.
+
+---
+
+## Document history
+
+- **2026-05-12** — Initial publication with F-1, F-2, N-1, N-2.
+- **2026-05-12 (same day, ~21:30 UTC)** — Added N-3: priest-authored Emergency DAO spec, reproduced verbatim with attribution, following collaborative-design dialogue in templ chat.
