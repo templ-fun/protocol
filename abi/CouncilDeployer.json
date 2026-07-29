@@ -1,0 +1,248 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_deployerEoa",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "DEPLOYER_EOA",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "deploy",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "approvalThresholdBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quorumBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "executionDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingPeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "immediateExecutionBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalFeeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "council",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deployFor",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "approvalThresholdBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quorumBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "executionDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingPeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "immediateExecutionBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalFeeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "council",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "governanceDeployer",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "predictDeployForAddress",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "approvalThresholdBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quorumBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "executionDelay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "votingPeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "immediateExecutionBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proposalFeeBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "council",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setGovernanceDeployer",
+    "inputs": [
+      {
+        "name": "_governanceDeployer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "switchNonce",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  }
+]

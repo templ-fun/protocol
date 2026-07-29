@@ -1,0 +1,20 @@
+# Build
+out/
+cache/
+
+# Dependencies (installed via forge soldeer install)
+dependencies/
+
+# Deployment sensitive data (private keys, etc.)
+cache/Deploy.s.sol/
+
+# Coverage
+lcov.info
+coverage/*
+!coverage/coverage.css
+
+# Gas snapshot
+.gas-snapshot
+
+# Environment
+.env

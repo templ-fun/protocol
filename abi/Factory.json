@@ -1,0 +1,910 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_initialOwner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_govDeployer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_isOpen",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "BPS_DENOMINATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "GOV_DEPLOYER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract GovernanceDeployer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PROTOCOL_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelOwnershipHandover",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "completeOwnershipHandover",
+    "inputs": [
+      {
+        "name": "pendingOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "createTempl",
+    "inputs": [
+      {
+        "name": "config",
+        "type": "tuple",
+        "internalType": "struct CreateConfig",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "baseEntryFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "slug",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "logoLink",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "burnBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "treasuryBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "memberPoolBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "referralShareBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "curve",
+            "type": "tuple",
+            "internalType": "struct CurveConfig",
+            "components": [
+              {
+                "name": "primary",
+                "type": "tuple",
+                "internalType": "struct CurveSegment",
+                "components": [
+                  {
+                    "name": "style",
+                    "type": "uint8",
+                    "internalType": "enum CurveStyle"
+                  },
+                  {
+                    "name": "rateBps",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "length",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  }
+                ]
+              },
+              {
+                "name": "additionalSegments",
+                "type": "tuple[]",
+                "internalType": "struct CurveSegment[]",
+                "components": [
+                  {
+                    "name": "style",
+                    "type": "uint8",
+                    "internalType": "enum CurveStyle"
+                  },
+                  {
+                    "name": "rateBps",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "length",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "governance",
+            "type": "tuple",
+            "internalType": "struct GovernanceConfig",
+            "components": [
+              {
+                "name": "mode",
+                "type": "uint8",
+                "internalType": "enum GovMode"
+              },
+              {
+                "name": "approvalThresholdBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "quorumBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "votingPeriod",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "executionDelay",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "immediateExecutionBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "proposalFeeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "council",
+                "type": "address[]",
+                "internalType": "address[]"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createTemplFor",
+    "inputs": [
+      {
+        "name": "priest",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "config",
+        "type": "tuple",
+        "internalType": "struct CreateConfig",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "baseEntryFee",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "slug",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "logoLink",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "burnBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "treasuryBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "memberPoolBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "referralShareBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "curve",
+            "type": "tuple",
+            "internalType": "struct CurveConfig",
+            "components": [
+              {
+                "name": "primary",
+                "type": "tuple",
+                "internalType": "struct CurveSegment",
+                "components": [
+                  {
+                    "name": "style",
+                    "type": "uint8",
+                    "internalType": "enum CurveStyle"
+                  },
+                  {
+                    "name": "rateBps",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "length",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  }
+                ]
+              },
+              {
+                "name": "additionalSegments",
+                "type": "tuple[]",
+                "internalType": "struct CurveSegment[]",
+                "components": [
+                  {
+                    "name": "style",
+                    "type": "uint8",
+                    "internalType": "enum CurveStyle"
+                  },
+                  {
+                    "name": "rateBps",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  },
+                  {
+                    "name": "length",
+                    "type": "uint32",
+                    "internalType": "uint32"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "governance",
+            "type": "tuple",
+            "internalType": "struct GovernanceConfig",
+            "components": [
+              {
+                "name": "mode",
+                "type": "uint8",
+                "internalType": "enum GovMode"
+              },
+              {
+                "name": "approvalThresholdBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "quorumBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "votingPeriod",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "executionDelay",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "immediateExecutionBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "proposalFeeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "council",
+                "type": "address[]",
+                "internalType": "address[]"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getTempls",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getTemplsPaginated",
+    "inputs": [
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "result",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isOpen",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isTempl",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "result",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ownershipHandoverExpiresAt",
+    "inputs": [
+      {
+        "name": "pendingOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "result",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolFeeRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "requestOwnershipHandover",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "setOpen",
+    "inputs": [
+      {
+        "name": "_isOpen",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setProtocolFeeRecipient",
+    "inputs": [
+      {
+        "name": "_recipient",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "slugToTempl",
+    "inputs": [
+      {
+        "name": "slug",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "templCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "templSlug",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "newOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "updateSlug",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newSlug",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "OpenUpdated",
+    "inputs": [
+      {
+        "name": "isOpen",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipHandoverCanceled",
+    "inputs": [
+      {
+        "name": "pendingOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipHandoverRequested",
+    "inputs": [
+      {
+        "name": "pendingOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "oldOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProtocolFeeRecipientUpdated",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SlugUpdated",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldSlug",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "newSlug",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TemplCreated",
+    "inputs": [
+      {
+        "name": "templ",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "priest",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "treasury",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "memberPool",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "baseEntryFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "slug",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "logoLink",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EntryFeeTooLarge",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EntryFeeTooSmall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidCouncil",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidCurveConfig",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidFeeRecipient",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPriest",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSlug",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSplit",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NewOwnerIsZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoHandoverRequest",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotGovernance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotRegisteredTempl",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlugTaken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
+    "inputs": []
+  }
+]

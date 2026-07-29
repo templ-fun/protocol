@@ -1,0 +1,70 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["dependencies"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+evm_version = "cancun"
+
+fuzz = { runs = 1000 }
+invariant = { runs = 256 }
+
+gas_reports = ["Templ", "TemplFactory", "TemplJoinWithNative"]
+
+remappings = [
+  "forge-std/=dependencies/forge-std-1.14.0/src/",
+  "solady/=dependencies/solady-0.1.26/src/",
+  "permit2/=dependencies/permit2-1.0.0/src/",
+]
+
+[fmt]
+line_length = 80
+tab_width = 2
+bracket_spacing = true
+int_types = "long"
+multiline_func_header = "params_first"
+quote_style = "double"
+number_underscore = "thousands"
+single_line_statement_blocks = "preserve"
+sort_imports = true
+
+# Soldeer dependency manager (remappings managed manually above)
+[soldeer]
+remappings_generate = false
+
+[dependencies]
+forge-std = { version = "1.14.0" }
+solady = { version = "0.1.26" }
+permit2 = { version = "1.0.0", git = "https://github.com/Uniswap/permit2.git", rev = "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219" }
+
+# RPC endpoints (public defaults, override via env vars if needed)
+[rpc_endpoints]
+localhost = "http://localhost:8545"
+base = "https://mainnet.base.org"
+base_sepolia = "https://sepolia.base.org"
+optimism = "https://mainnet.optimism.io"
+optimism_sepolia = "https://sepolia.optimism.io"
+arbitrum = "https://arb1.arbitrum.io/rpc"
+arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
+mainnet = "https://eth.llamarpc.com"
+sepolia = "https://rpc.sepolia.org"
+# MegaETH mainnet (chain id 4326). Public RPC, switch to a dedicated provider
+# for production deploys. See https://docs.megaeth.com/.
+mega = "https://mainnet.megaeth.com/rpc"
+
+# Etherscan verification (single key works across all chains via Etherscan V2)
+[etherscan]
+base = { key = "${ETHERSCAN_API_KEY}" }
+base_sepolia = { key = "${ETHERSCAN_API_KEY}" }
+optimism = { key = "${ETHERSCAN_API_KEY}" }
+optimism_sepolia = { key = "${ETHERSCAN_API_KEY}" }
+arbitrum = { key = "${ETHERSCAN_API_KEY}" }
+arbitrum_sepolia = { key = "${ETHERSCAN_API_KEY}" }
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+# MegaETH mainnet listed on the Etherscan V2 chainlist with the same single
+# key. Verified via `curl https://api.etherscan.io/v2/chainlist | jq` on
+# 2026-05-12.
+mega = { key = "${ETHERSCAN_API_KEY}", chain = 4326, url = "https://api.etherscan.io/v2/api?chainid=4326" }
